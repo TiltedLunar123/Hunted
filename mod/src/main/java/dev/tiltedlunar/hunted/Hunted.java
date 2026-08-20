@@ -11,9 +11,9 @@ import org.slf4j.LoggerFactory;
  * Mod entry point.
  *
  * <p>Runs on both the client and a dedicated server. Everything that decides
- * how a hunter behaves lives on the server side, which is what lets the same
- * jar work in single player, over LAN, and on a server where only the operator
- * has it installed.
+ * how a hunter behaves lives on the server side, so there is no second account
+ * and nothing to pilot. The jar is still needed on every client, because a
+ * client that has never heard of the hunter cannot join a server that has one.
  */
 public final class Hunted implements ModInitializer {
 

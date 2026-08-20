@@ -367,10 +367,34 @@ public final class PathSearch {
 		}
 		double head = clearCost(cx, cy + 1, cz);
 		double above = clearCost(cx, cy + 2, cz);
-		if (head < INF && above < INF && view.classify(cx, cy - 1, cz).standable()) {
-			relax(current, PosCodec.pack(cx, cy + 1, cz),
-					g + PathProfile.PLACE + PathProfile.JUMP_PENALTY + head + above, MoveKind.PILLAR);
+		if (head >= INF || above >= INF) {
+			return;
 		}
+		if (!supportsAPillar(current, cx, cy, cz)) {
+			return;
+		}
+		relax(current, PosCodec.pack(cx, cy + 1, cz),
+				g + PathProfile.PLACE + PathProfile.JUMP_PENALTY + head + above, MoveKind.PILLAR);
+	}
+
+	/**
+	 * Whether the hunter has something to jump off to start or continue a tower.
+	 *
+	 * <p>Either the ground is real, or this route already put a block there. The
+	 * second half is the important one and was missing: a tower is built one
+	 * block at a time, each standing on the one below, and the world knows
+	 * nothing about blocks a route only intends to place. Checking the world
+	 * alone meant a hunter could pillar exactly once and never again, so any
+	 * time it ended up below its target, at the foot of a cliff or under the
+	 * ledge it had just fallen off, no route back up existed and it stood there
+	 * until the trail went cold.
+	 */
+	private boolean supportsAPillar(long current, int cx, int cy, int cz) {
+		if (view.classify(cx, cy - 1, cz).standable()) {
+			return true;
+		}
+		Node node = nodes.get(current);
+		return node != null && node.kind == MoveKind.PILLAR;
 	}
 
 	/** Mine the floor and drop into the hole. */

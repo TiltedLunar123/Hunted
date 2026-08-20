@@ -248,6 +248,60 @@ class PathSearchTest {
 	}
 
 	@Test
+	@DisplayName("towers up out of a pit, one placed block standing on the last")
+	void pillarsOutOfAPit() {
+		// A shaft four deep at x = 1. The only way out is straight up, which
+		// means pillaring off blocks that do not exist until this route places
+		// them. Checking the world for support allowed exactly one, and the
+		// hunter sat at the bottom of every hole it ever fell into.
+		GridWorld world = GridWorld.of(15.0f,
+				"""
+				SSSSS
+				SSSSS
+				SSSSS
+				""",
+				"""
+				S.SSS
+				S.SSS
+				S.SSS
+				""",
+				"""
+				S.SSS
+				S.SSS
+				S.SSS
+				""",
+				"""
+				S.SSS
+				S.SSS
+				S.SSS
+				""",
+				"""
+				.....
+				.....
+				.....
+				""",
+				"""
+				.....
+				.....
+				.....
+				"""
+		);
+
+		long start = PosCodec.pack(1, 1, 1);
+		long goal = PosCodec.pack(3, 5, 1);
+
+		List<PathStep> walker = solve(world, start, goal, WALKER, PathSearch.Status.PARTIAL);
+		assertTrue(walker.stream().noneMatch(s -> s.y() >= 5),
+				"with no blocks to place there is no way out of the shaft");
+
+		List<PathStep> builder = solve(world, start, goal, BUILDER, PathSearch.Status.SUCCESS);
+		long towers = builder.stream().filter(s -> s.kind() == MoveKind.PILLAR).count();
+		assertTrue(towers >= 2,
+				"one pillar is not a tower, and one is all it could ever manage: got " + towers);
+		assertEquals(5, builder.get(builder.size() - 1).y());
+	}
+
+	@Test
 	@DisplayName("sprint jumps a three block gap that a walker cannot cross")
 	void parkoursAcrossGap() {
 		// Three blocks of air at x = 3, 4, 5.

@@ -296,13 +296,22 @@ To build against a different Minecraft version, change `minecraft_version` and
 
 ## Status
 
-Built and tested as a codebase: it compiles clean with no warnings, and 82 tests
-cover the pathfinder, the interception maths, the tactics, the crafting ladder
-and the installer, including a full install run against a local server.
+It compiles clean with no warnings, and 83 tests cover the pathfinder, the
+interception maths, the tactics, the crafting ladder and the installer,
+including a full install run against a local server.
 
-It has not yet been played through a full session in a live game. If you find
-something that behaves badly in practice, an issue with the tier and what you
-were doing is genuinely useful.
+It has also been run on a real Minecraft 26.2 dedicated server and watched
+hunting a real player, which is the only reason any of it works. The unit tests
+were all green while the hunter was, in a running game, completely unable to
+move: vanilla resets a mob's movement input immediately after the hook this mod
+runs in, and nothing that tests a pathfinder in isolation will ever notice that.
+Three more faults of the same kind turned up in the first hour of playing it.
+What is verified in game is spawning, chasing across open ground, tunnelling
+through a wall, bridging a gap, deciding to go and make an axe against a shield,
+and killing the player.
+
+Longer sessions will find more. If something behaves badly in practice, an issue
+with the tier and what you were doing is genuinely useful.
 
 ### What it does not do
 

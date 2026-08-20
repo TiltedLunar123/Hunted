@@ -213,6 +213,10 @@ public final class HuntedCommand {
 		hunter.setSurvivalMode(survival);
 		hunter.setTier(tier);
 		hunter.tracker().setTargetId(quarry.getUUID());
+		// Point it at where the target is standing right now. It has to close
+		// that distance on foot and find them again from there, but it starts
+		// out walking rather than standing still waiting to be noticed.
+		hunter.tracker().setInitialFix(quarry.blockPosition(), quarry.level().dimension());
 		hunter.setGlowingTag(HuntedConfig.get().glowing());
 		level.addFreshEntity(hunter);
 

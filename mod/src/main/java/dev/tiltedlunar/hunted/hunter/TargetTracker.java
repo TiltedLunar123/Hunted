@@ -61,6 +61,25 @@ public final class TargetTracker {
 		this.ticksSinceFix = Integer.MAX_VALUE;
 	}
 
+	/**
+	 * Hands the hunter a starting scent.
+	 *
+	 * <p>Without one a fair tier never moves. Its knowledge comes entirely from
+	 * sight and sound, it spawns far enough away to have neither, and a hunter
+	 * with no fix at all has nowhere to walk, so it stands where it appeared
+	 * waiting to see a player who is busy leaving. Being told roughly where the
+	 * target was is the reason it was sent, and it is the first thing any real
+	 * manhunt starts with.
+	 *
+	 * <p>This is a single stale fix, not ongoing knowledge. It walks to where
+	 * you were. Finding you from there is still its own problem.
+	 */
+	public void setInitialFix(BlockPos where, ResourceKey<Level> dimension) {
+		this.lastKnown = where;
+		this.lastKnownDimension = dimension;
+		this.ticksSinceFix = 0;
+	}
+
 	/** Last position the hunter believes its quarry occupied. May be null. */
 	public BlockPos lastKnown() {
 		return lastKnown;

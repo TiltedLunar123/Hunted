@@ -194,6 +194,34 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		super(type, level);
 		setPersistenceRequired();
 		this.xpReward = 20;
+		// See the class comment on IdleMoveControl. Without this the hunter
+		// cannot move at all.
+		this.moveControl = new IdleMoveControl(this);
+	}
+
+	/**
+	 * A move control that does nothing, because this mob steers itself.
+	 *
+	 * <p>Vanilla runs {@code moveControl.tick()} immediately <em>after</em>
+	 * {@code customServerAiStep}, and the default control, having no vanilla
+	 * navigation target to follow, sits in its WAIT state and calls
+	 * {@code setZza(0)} every tick. That silently erased the movement input the
+	 * follower had just written, one line after it was written, so the hunter
+	 * planned a route, reported that it was moving, and then stood perfectly
+	 * still forever. Replacing the control is what lets the path actually
+	 * become motion.
+	 */
+	private static final class IdleMoveControl
+			extends net.minecraft.world.entity.ai.control.MoveControl<HunterEntity> {
+
+		IdleMoveControl(HunterEntity mob) {
+			super(mob);
+		}
+
+		@Override
+		public void tick() {
+			// Deliberately empty. PathFollower owns zza and xxa.
+		}
 	}
 
 	/**
@@ -728,8 +756,34 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 			idle();
 			return;
 		}
-		planTowards(level, tier, intercept(goal));
+
+		BlockPos aim = intercept(goal);
+
+		// Let it finish the block it is already breaking. Handing the follower
+		// a fresh path throws away the progress on the current block, and the
+		// replan timer fires every sixty ticks, so anything that takes longer
+		// than that to break could never be broken at all. Stone with the wrong
+		// tool takes a hundred and fifty. The hunter would stand at a wall
+		// swinging forever and never get through it.
+		//
+		// A target that has genuinely moved on still interrupts, because
+		// tunnelling towards where someone used to be is its own kind of stuck.
+		if (activity() == PathFollower.State.MINING && !goalMovedFar(aim)) {
+			follow(level);
+			return;
+		}
+
+		planTowards(level, tier, aim);
 		follow(level);
+	}
+
+	/** Whether the goal has drifted far enough to be worth abandoning a dig. */
+	private boolean goalMovedFar(BlockPos goal) {
+		if (search == null && searchGoal == 0L) {
+			return true;
+		}
+		long key = PosCodec.pack(goal.getX(), goal.getY(), goal.getZ());
+		return PosCodec.distance(searchGoal, key) > GOAL_DRIFT;
 	}
 
 	/**

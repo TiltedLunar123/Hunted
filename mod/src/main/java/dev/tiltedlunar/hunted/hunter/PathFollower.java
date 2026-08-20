@@ -106,7 +106,11 @@ public final class PathFollower {
 		if (bridge.maintain(hunter, level, path, index)) {
 			hunter.zza = 0.0f;
 			hunter.xxa = 0.0f;
-			return State.PLACING;
+			// Waiting to place is still standing still, so it counts towards
+			// being stuck. Without this a block it can never manage to put
+			// down holds the hunter at the edge of the gap permanently, and
+			// the brain never finds out it should try another way round.
+			return trackProgress(hunter) == State.STUCK ? State.STUCK : State.PLACING;
 		}
 
 		BlockPos obstruction = firstObstruction(hunter, level, target);
