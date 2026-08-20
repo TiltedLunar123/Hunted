@@ -49,6 +49,7 @@ public final class TargetTracker {
 	private ResourceKey<Level> lastKnownDimension;
 	private int ticksSinceFix = Integer.MAX_VALUE;
 	private int ticksSinceScan;
+	private boolean cold;
 
 	/** The player being hunted, if one is currently assigned. */
 	public UUID targetId() {
@@ -57,6 +58,7 @@ public final class TargetTracker {
 
 	public void setTargetId(UUID id) {
 		this.targetId = id;
+		this.cold = false;
 		this.lastKnown = null;
 		this.ticksSinceFix = Integer.MAX_VALUE;
 	}
@@ -75,6 +77,7 @@ public final class TargetTracker {
 	 * you were. Finding you from there is still its own problem.
 	 */
 	public void setInitialFix(BlockPos where, ResourceKey<Level> dimension) {
+		this.cold = false;
 		this.lastKnown = where;
 		this.lastKnownDimension = dimension;
 		this.ticksSinceFix = 0;
@@ -130,6 +133,7 @@ public final class TargetTracker {
 			lastKnown = target.blockPosition();
 			lastKnownDimension = target.level().dimension();
 			ticksSinceFix = 0;
+			cold = false;
 		} else {
 			expireStaleTrail(tier);
 		}
@@ -167,11 +171,29 @@ public final class TargetTracker {
 		return noisy && !target.isCrouching() && distance <= HEARING_RANGE;
 	}
 
-	/** Sensory hunters give up on a cold trail; the rest never do. */
+	/**
+	 * Lets a sensory hunter's information go cold without throwing it away.
+	 *
+	 * <p>Discarding the position outright is what a hunter that has lost you
+	 * should not do. It leaves nothing to walk to, so the hunter stops where it
+	 * happens to be standing and never moves again, and from your side the mod
+	 * simply looks broken. Keeping the position and marking it cold gives it
+	 * somewhere to go and something to do when it gets there.
+	 */
 	private void expireStaleTrail(HunterTier tier) {
 		if (tier.knowledge() == HunterTier.Knowledge.SENSORY && ticksSinceFix > TRAIL_TIMEOUT) {
-			lastKnown = null;
+			cold = true;
 		}
+	}
+
+	/**
+	 * Whether the hunter is working from information it no longer trusts.
+	 *
+	 * <p>True once the trail has gone stale. It still knows where you were; it
+	 * no longer believes you are there.
+	 */
+	public boolean cold() {
+		return cold;
 	}
 
 	/** Looks up the assigned player anywhere on the server. */

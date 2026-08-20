@@ -116,6 +116,36 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	/** Close enough that a hostile is physically blocking the way through. */
 	private static final double IN_THE_WAY_RANGE = 3.0D;
 
+	/**
+	 * Distance the hunter wants before it will settle down and gather.
+	 *
+	 * <p>Two thresholds rather than one, because a single line produces a
+	 * hunter that paces along it: anything worth walking to is usually towards
+	 * the quarry, so stepping over the line to reach it immediately puts it
+	 * back under. It breaks off when the quarry gets inside {@link #CROWDED}
+	 * and does not settle again until it has this much room.
+	 */
+	private static final double WORKING_ROOM = 16.0D;
+
+	/** Quarry this close and there is no room to work at all. */
+	private static final double CROWDED = 12.5D;
+
+	/** Close enough to the last sighting to start casting around for a trail. */
+	private static final double SEARCH_ARRIVE = 4.0D;
+
+	/** Ticks spent on each leg of a search before trying somewhere else. */
+	private static final int SEARCH_HOLD = 70;
+
+	/** How far apart successive search points start out. */
+	private static final int SEARCH_STEP = 9;
+
+	/** The search never wanders further than this from the last sighting. */
+	private static final int SEARCH_MAX = 40;
+
+	/** Radians turned between one search leg and the next. Not a neat fraction
+	 *  of a circle, so the sweep does not retrace the same few points. */
+	private static final double SEARCH_TURN = 2.399963D;
+
 	/** Untouched for this long before it will stop to eat. */
 	public static final int OUT_OF_COMBAT_TICKS = 200;
 
@@ -146,6 +176,10 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private int digestTicks;
 	private int blocksBroken;
 	private int blocksPlaced;
+	private BlockPos searchSpot;
+	private int searchTicks;
+	private int searchLeg;
+	private boolean backingOff;
 
 	/**
 	 * How far around itself to look for a portal.
@@ -492,6 +526,23 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 					? Progression.Focus.SHIELD_BREAKER
 					: Progression.Focus.NONE;
 
+			// Deciding to go and make an axe means going somewhere to make it.
+			// The economy refuses to work with the quarry inside twelve blocks,
+			// and nothing here used to back off, so a hunter that chose to gear
+			// up simply walked into melee and stayed there: too close to work,
+			// still holding the wrong tool, repeating the decision forever.
+			// Break off first, then shop.
+			double room = distanceTo(quarry);
+			if (room < CROWDED) {
+				backingOff = true;
+			} else if (room >= WORKING_ROOM) {
+				backingOff = false;
+			}
+			if (backingOff) {
+				backAwayFrom(quarry);
+				return;
+			}
+
 			SurvivalBrain.Directive directive =
 					survival.tick(this, level, distanceTo(quarry), focus);
 			if (directive.busy()) {
@@ -764,7 +815,11 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 			return;
 		}
 
-		BlockPos aim = intercept(goal);
+		// A cold trail means it knows where you were and not where you are. It
+		// goes there and sweeps the area rather than standing still, which is
+		// what losing someone actually looks like. Standing still is what a
+		// broken mod looks like.
+		BlockPos aim = tracker.cold() ? sweepAround(goal) : intercept(goal);
 
 		// Let it finish the block it is already breaking. Handing the follower
 		// a fresh path throws away the progress on the current block, and the
@@ -782,6 +837,34 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 
 		planTowards(level, tier, aim);
 		follow(level);
+	}
+
+	/**
+	 * A point to search, near the last place the quarry was seen.
+	 *
+	 * <p>Walks to the spot itself first. Once it is standing there and has
+	 * still found nothing, it starts casting around: a new point every few
+	 * seconds, further out each time, until either it sees the player again or
+	 * the search area is wide enough that it starts over close in. That is the
+	 * difference between a hunter that lost you and a hunter that gave up.
+	 */
+	private BlockPos sweepAround(BlockPos anchor) {
+		if (distanceToSqr(anchor.getX() + 0.5D, getY(), anchor.getZ() + 0.5D)
+				> SEARCH_ARRIVE * SEARCH_ARRIVE) {
+			return anchor;
+		}
+
+		if (searchTicks-- <= 0) {
+			searchTicks = SEARCH_HOLD;
+			searchLeg++;
+			double angle = searchLeg * SEARCH_TURN;
+			int reach = (int) Math.min(SEARCH_MAX, SEARCH_STEP * (1 + searchLeg / 4));
+			searchSpot = anchor.offset(
+					(int) Math.round(Math.cos(angle) * reach),
+					0,
+					(int) Math.round(Math.sin(angle) * reach));
+		}
+		return searchSpot == null ? anchor : searchSpot;
 	}
 
 	/** Whether the goal has drifted far enough to be worth abandoning a dig. */

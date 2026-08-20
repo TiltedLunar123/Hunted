@@ -258,6 +258,11 @@ Breaking line of sight works against the three fair tiers, because they only
 know what they can perceive. Enforcer treats it as a delay. Relentless does not
 care, which is why it is not the default.
 
+Losing them is not the same as being rid of them. After about a minute without
+seeing or hearing you a fair tier stops believing its information, walks to
+wherever it last had you, and starts sweeping the area in widening arcs. You
+have to leave, not just hide.
+
 ## Commands
 
 ```
@@ -306,9 +311,13 @@ were all green while the hunter was, in a running game, completely unable to
 move: vanilla resets a mob's movement input immediately after the hook this mod
 runs in, and nothing that tests a pathfinder in isolation will ever notice that.
 Three more faults of the same kind turned up in the first hour of playing it.
-What is verified in game is spawning, chasing across open ground, tunnelling
-through a wall, bridging a gap, deciding to go and make an axe against a shield,
-and killing the player.
+Verified in game so far: spawning, chasing across open ground, tunnelling
+through a wall, bridging a gap, the whole crafting ladder from an empty pack to
+a stone pickaxe, eating to heal, fighting mobs, breaking off when hurt and
+walling itself in, searching after it loses you, and killing the player.
+
+Still only proven by unit tests: chest looting, smelting, the water bucket
+clutch, nether portals, the taunt lines, and the four non-default tiers.
 
 Longer sessions will find more. If something behaves badly in practice, an issue
 with the tier and what you were doing is genuinely useful.
@@ -328,6 +337,9 @@ Worth saying plainly, so nothing here is a surprise.
   gear, so out-diamonding it is what triggers the upgrade.
 - **It will not dig gravel hoping for flint.** The flint and steel trick needs
   flint it already picked up.
+- **It is not a good pathfinder over long open distances yet.** It crosses ground
+  fine, but given a goal tens of blocks away with nothing in the way it can drift
+  rather than commit, and take longer than it should to arrive.
 - **It does not fight everything.** It kills what is hitting it or standing in
   the doorway, backs off from creepers and wardens, and walks past the rest.
 
