@@ -130,6 +130,38 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	/** Quarry this close and there is no room to work at all. */
 	private static final double CROWDED = 12.5D;
 
+	/**
+	 * Ticks of no progress at all before the watchdog intervenes.
+	 *
+	 * <p>Fifteen seconds, which has to clear the slowest thing the hunter does
+	 * standing still: a furnace cycle is two hundred ticks, and a log punched
+	 * by hand is another two hundred. Setting this under that turned the
+	 * watchdog into the very bug it exists to catch, tearing up the hunter's
+	 * mining progress every five seconds so no tree was ever felled.
+	 */
+	private static final int PATIENCE = 300;
+
+	/**
+	 * Ticks of gathering that changes nothing before it gives up and hunts.
+	 *
+	 * <p>Twenty seconds. Long enough to walk to a tree, fell it and carry the
+	 * wood back; short enough that a player never watches it potter about for
+	 * a minute while they stand there waiting to be hunted.
+	 */
+	private static final int ECONOMY_PATIENCE = 400;
+
+	/** Ticks spent hunting before it is willing to go shopping again. */
+	private static final int ECONOMY_REST = 600;
+
+	/**
+	 * How far the hunter has to get from where it was to count as going
+	 * somewhere. Anything tighter than this is pacing, not travelling.
+	 */
+	private static final double WANDER_RADIUS = 3.0D;
+
+	/** Ticks the watchdog keeps walking once it has decided to shove. */
+	private static final int NUDGE_TICKS = 30;
+
 	/** Close enough to the last sighting to start casting around for a trail. */
 	private static final double SEARCH_ARRIVE = 4.0D;
 
@@ -180,6 +212,15 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private int searchTicks;
 	private int searchLeg;
 	private boolean backingOff;
+	private net.minecraft.world.phys.Vec3 lastSeenAt;
+	private int lastBroken;
+	private int lastPlaced;
+	private int stalledFor;
+	private float nudgeYaw;
+	private int workPulse;
+	private int lastPulse;
+	private int lastCarried = -1;
+	private int economyDry;
 
 	/**
 	 * How far around itself to look for a portal.
@@ -230,7 +271,10 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		setPersistenceRequired();
 		this.xpReward = 20;
 		// See the class comment on IdleMoveControl. Without this the hunter
-		// cannot move at all.
+		// cannot move at all, and jumps have to go through the jump control
+		// rather than setJumping for exactly the same reason: vanilla ticks
+		// both of them after this mod has had its say, and both of them write
+		// over whatever it decided.
 		this.moveControl = new IdleMoveControl(this);
 	}
 
@@ -446,6 +490,9 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 
 		HunterTier tier = tier();
 		damageClock.tick();
+		if (watchdog(level)) {
+			return;
+		}
 
 		if (tier.regenPerTick() > 0.0D && getHealth() < getMaxHealth()) {
 			heal((float) tier.regenPerTick());
@@ -521,7 +568,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 				survivalMode ? survival.describe() : null,
 				quarry.getMaxHealth() > 0.0f ? quarry.getHealth() / quarry.getMaxHealth() : 1.0f);
 
-		if (plan.tactic().isEconomy()) {
+		if (plan.tactic().isEconomy() && !economyGaveUp()) {
 			Progression.Focus focus = plan.tactic() == Tactic.COUNTER_SHIELD
 					? Progression.Focus.SHIELD_BREAKER
 					: Progression.Focus.NONE;
@@ -574,6 +621,15 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 
 		if (combat.tick(this, level, quarry, plan.tactic())) {
 			setActivity(PathFollower.State.MOVING);
+			return;
+		}
+
+		// Withdrawing means withdrawing. Combat only drives the retreat while
+		// the quarry is inside engage range; one step past it the tick used to
+		// fall through here and navigate straight back at the thing it had
+		// just decided to run away from.
+		if (plan.tactic() == Tactic.WITHDRAW) {
+			backAwayFrom(quarry);
 			return;
 		}
 
@@ -840,6 +896,178 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	}
 
 	/**
+	 * Whether shopping has stopped being worth it.
+	 *
+	 * <p>Gathering is an optimisation. Killing you is the job. Every stall
+	 * worth fixing so far has been the hunter deciding to go and fetch
+	 * something and then failing to fetch it, so this puts a clock on that: if
+	 * a stretch of gathering produces nothing the hunter did not already have,
+	 * it stops trying and comes for you with whatever is in its hands.
+	 *
+	 * <p>Progress means the pack changed. Not the plan, not the position, not
+	 * what the status line claims it is doing. Those all kept looking healthy
+	 * while nothing happened.
+	 *
+	 * <p>It goes back to shopping after {@link #ECONOMY_REST}, because the
+	 * world moves: the tree it could not reach may be behind it now, and a
+	 * chest it walks past later is still worth opening.
+	 */
+	private boolean economyGaveUp() {
+		int carried = survival.carrying().fingerprint();
+		if (carried != lastCarried) {
+			lastCarried = carried;
+			economyDry = 0;
+			return false;
+		}
+
+		if (economyDry > ECONOMY_PATIENCE + ECONOMY_REST) {
+			economyDry = 0;
+			return false;
+		}
+
+		economyDry++;
+		return economyDry > ECONOMY_PATIENCE;
+	}
+
+	/** Whether there is anything in the pack it could bridge with. */
+	private boolean hasBuildingBlock() {
+		BlockState block = takeBuildingBlock();
+		if (block == null) {
+			return false;
+		}
+		survival.carrying().add(block.getBlock().asItem(), 1);
+		return true;
+	}
+
+	/** Whether it has stopped trying to gather and is simply hunting. */
+	public boolean shoppingAbandoned() {
+		return economyDry > ECONOMY_PATIENCE;
+	}
+
+	/**
+	 * Counts every swing, so the watchdog can tell work from paralysis.
+	 *
+	 * <p>Mining, chopping and fighting all come through here.
+	 */
+	@Override
+	public void swing(net.minecraft.world.InteractionHand hand) {
+		super.swing(hand);
+		workPulse++;
+	}
+
+	/**
+	 * Guarantees the hunter can never be quietly stuck forever.
+	 *
+	 * <p>Every stall found by actually playing this had the same shape: some
+	 * piece of state pointing at something no longer reachable, a decision
+	 * remade identically every tick, and a hunter standing perfectly still with
+	 * a plan it was pleased with. Each one had a different cause and each was
+	 * invisible from outside. This does not care about the cause.
+	 *
+	 * <p>Progress means any of four things: it moved, it broke a block, it
+	 * placed one, or it is digesting a meal. None of those for
+	 * {@link #PATIENCE} ticks and it tears up the plan: the search, the path,
+	 * and everything the economy was in the middle of. If that does not help
+	 * either, it shoves itself sideways, because the remaining explanation is
+	 * usually geometry rather than intent.
+	 */
+	private boolean watchdog(ServerLevel level) {
+		// Measured against an anchor rather than against last tick, because a
+		// hunter shuffling between two adjacent blocks moves every single tick
+		// and gets nowhere. Comparing consecutive ticks called that progress
+		// and let it shuffle forever.
+		boolean moved = lastSeenAt == null
+				|| distanceToSqr(lastSeenAt.x, lastSeenAt.y, lastSeenAt.z)
+						> WANDER_RADIUS * WANDER_RADIUS;
+		// Swinging counts. Breaking a block only registers on the tick it
+		// finally gives way, and everything before that looks identical to
+		// standing still doing nothing.
+		//
+		// Breaking and placing together does not count. A hunter that puts a
+		// block down and immediately takes it back up again is not building
+		// anything, it is chewing a hole in the world on the spot, and both
+		// counters climbing in step is exactly what that looks like from here.
+		int broke = blocksBroken - lastBroken;
+		int laid = blocksPlaced - lastPlaced;
+		boolean churning = broke > 0 && laid > 0;
+		boolean worked = !churning
+				&& (broke != 0 || laid != 0 || digestTicks > 0 || workPulse != lastPulse);
+
+		lastBroken = blocksBroken;
+		lastPlaced = blocksPlaced;
+		lastPulse = workPulse;
+
+		if (moved || worked) {
+			lastSeenAt = position();
+			stalledFor = 0;
+			return false;
+		}
+
+		stalledFor++;
+
+		if (stalledFor == PATIENCE) {
+			resetSearch();
+			follower.setPath(level, getId(), List.of());
+			survival.startOver(level, this);
+			searchSpot = null;
+			searchTicks = 0;
+			return false;
+		}
+
+		// Still nothing. Walk somewhere, anywhere, and let the planner start
+		// again from wherever that leaves it. This has to own the whole tick
+		// and return: setting the movement input and then letting the normal
+		// code run would just have the next branch set it straight back to
+		// zero, which is exactly how the hunter came to be stuck here.
+		if (stalledFor >= PATIENCE * 2) {
+			if (stalledFor >= PATIENCE * 2 + NUDGE_TICKS) {
+				stalledFor = 0;
+			}
+			if (stalledFor == PATIENCE * 2) {
+				nudgeYaw = wayOut(level);
+			}
+			setYRot(nudgeYaw);
+			yBodyRot = nudgeYaw;
+			yHeadRot = nudgeYaw;
+			setSpeed((float) getAttributeValue(Attributes.MOVEMENT_SPEED));
+			setSprinting(false);
+			setShiftKeyDown(false);
+			this.xxa = 0.0f;
+			this.zza = 1.0f;
+			getJumpControl().jump();
+			setActivity(PathFollower.State.MOVING);
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * A direction with ground under it, for the watchdog to shove towards.
+	 *
+	 * <p>Tries the eight compass directions in a random order and takes the
+	 * first with something solid to stand on a couple of blocks along. Picking
+	 * a pure random heading instead walks the hunter off ledges and, over a few
+	 * shoves, wedges it into whatever corner it started nearest.
+	 */
+	private float wayOut(ServerLevel level) {
+		int start = getRandom().nextInt(8);
+		for (int i = 0; i < 8; i++) {
+			double angle = ((start + i) % 8) * (Math.PI / 4.0D);
+			int dx = (int) Math.round(Math.cos(angle) * 2.0D);
+			int dz = (int) Math.round(Math.sin(angle) * 2.0D);
+			BlockPos ahead = blockPosition().offset(dx, 0, dz);
+			boolean floor = level.getBlockState(ahead.below())
+					.isCollisionShapeFullBlock(level, ahead.below());
+			boolean room = level.getBlockState(ahead).isAir()
+					&& level.getBlockState(ahead.above()).isAir();
+			if (floor && room) {
+				return (float) (Math.toDegrees(Math.atan2(dz, dx))) - 90.0f;
+			}
+		}
+		return getRandom().nextFloat() * 360.0f;
+	}
+
+	/**
 	 * A point to search, near the last place the quarry was seen.
 	 *
 	 * <p>Walks to the spot itself first. Once it is standing there and has
@@ -974,9 +1202,12 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	/** Config can veto terrain edits regardless of what the tier allows. */
 	private PathProfile withPermissions(PathProfile profile) {
 		boolean allowed = canModifyTerrain();
+		// Pricing a bridge it has nothing to build with produces a route it can
+		// only ever stand at the near end of, replanned identically forever.
+		boolean canPay = !survivalMode || hasBuildingBlock();
 		return new PathProfile(
 				profile.canMine() && allowed,
-				profile.canBridge() && allowed,
+				profile.canBridge() && allowed && canPay,
 				profile.canOpenDoors(),
 				profile.canParkour(),
 				profile.sprint(),

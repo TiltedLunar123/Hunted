@@ -160,6 +160,56 @@ class ProgressionTest {
 	}
 
 	@Test
+	@DisplayName("a furnace out of a chest does not convince it the mining is done")
+	void lootedFurnaceStillNeedsStone() {
+		// The rung used to be skipped by anyone holding a furnace, on the
+		// assumption that a furnace meant eight cobblestone had already been
+		// mined. A looted one costs nothing, and the hunter went on to ask for
+		// a stone sword with no stone in the pack and stopped there for good.
+		HunterInventory carrying = new HunterInventory();
+		carrying.add(Items.FURNACE, 1);
+		carrying.add(Items.CRAFTING_TABLE, 1);
+		carrying.add(Items.STICK, 8);
+		carrying.add(Items.OAK_PLANKS, 20);
+
+		Progression.Task task = Progression.next(carrying);
+		assertFalse(task instanceof Progression.Task.Craft craft
+						&& !craft.recipe().canCraft(carrying),
+				"the ladder must never ask for a craft the pack cannot pay for");
+	}
+
+	@Test
+	@DisplayName("no reachable pack ever produces a craft it cannot afford")
+	void ladderNeverAsksForTheImpossible() {
+		// Walks the ladder forward by satisfying whatever it asks for, which is
+		// the same thing the hunter does, and checks it never asks for
+		// something it cannot make. A single unaffordable craft is a permanent
+		// stop, because the ladder is a pure function of the pack.
+		HunterInventory carrying = new HunterInventory();
+		carrying.add(Items.FURNACE, 1);
+		carrying.add(Items.CRAFTING_TABLE, 1);
+
+		for (int step = 0; step < 40; step++) {
+			Progression.Task task = Progression.next(carrying);
+			if (task instanceof Progression.Task.Craft craft) {
+				assertTrue(craft.recipe().canCraft(carrying),
+						"step " + step + " asked for "
+								+ craft.recipe().result() + " it cannot afford");
+				craft.recipe().craft(carrying);
+			} else if (task instanceof Progression.Task.Gather gather) {
+				carrying.add(gather.expected(), gather.untilCount());
+			} else if (task instanceof Progression.Task.GatherBlock gather) {
+				carrying.add(gather.expected(), gather.untilCount());
+			} else if (task instanceof Progression.Task.Smelt smelt) {
+				carrying.consume(smelt.input(), smelt.count());
+				carrying.add(Recipes.smeltResult(smelt.input()), smelt.count());
+			} else {
+				return;
+			}
+		}
+	}
+
+	@Test
 	@DisplayName("raw meat is edible but does not count as a stocked meal")
 	void rawMeatIsNotAMeal() {
 		HunterInventory carrying = new HunterInventory();

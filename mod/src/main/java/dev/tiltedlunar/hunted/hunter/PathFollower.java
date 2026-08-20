@@ -120,6 +120,19 @@ public final class PathFollower {
 
 		clearMining(level, hunter.getId());
 
+		// Straight up. There is no heading to steer towards when the next step
+		// is directly overhead, so steering at it produces a stale yaw and full
+		// forward input, which walks the hunter off the one block tower it just
+		// built. Hold still and climb.
+		if (step.x() == hunter.getBlockX() && step.z() == hunter.getBlockZ()
+				&& step.y() > hunter.getBlockY()) {
+			hunter.zza = 0.0f;
+			hunter.xxa = 0.0f;
+			hunter.getLookControl().setLookAt(Vec3.atCenterOf(target));
+			hunter.getJumpControl().jump();
+			return trackProgress(hunter);
+		}
+
 		// A gap jump only clears at a run, so it overrules the quiet approach.
 		// Better to be heard coming than to sneak neatly into the ravine.
 		if (step.kind().needsSprint()) {
@@ -128,7 +141,7 @@ public final class PathFollower {
 		steer(hunter, Vec3.atBottomCenterOf(target), hunter.tier().canSprint());
 
 		if (step.kind().needsJump() || needsHop(hunter, target)) {
-			hunter.setJumping(true);
+			hunter.getJumpControl().jump();
 		}
 
 		return trackProgress(hunter);

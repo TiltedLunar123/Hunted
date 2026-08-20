@@ -129,6 +129,17 @@ public final class Looter {
 	}
 
 	/** Marks a container as done with. */
+	/**
+	 * Forgets every container it has written off.
+	 *
+	 * <p>Only for the watchdog. A hunter that has stopped making progress may
+	 * have skipped the one chest that would have unstuck it, and a second look
+	 * costs nothing next to standing still.
+	 */
+	public void forgetAll() {
+		emptied.clear();
+	}
+
 	public void remember(BlockPos at) {
 		if (emptied.size() > MEMORY_LIMIT) {
 			emptied.clear();

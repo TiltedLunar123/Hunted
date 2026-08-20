@@ -22,6 +22,9 @@ that one hunter.
 Tiers are `scout`, `stalker`, `rival`, `enforcer` and `relentless`. The numbers
 1 to 5 work too, and `hunter` is accepted as an old name for `rival`.
 
+`scout` and `stalker` only know what they can see and hear. `rival`, the default,
+and everything above it always know where their target is.
+
 ## Managing
 
 ```

@@ -85,7 +85,7 @@ public final class BridgeBuilder {
 			// A pillar puts the block where the hunter is standing, so it has
 			// to be in the air before there is room for it.
 			if (step.kind() == MoveKind.PILLAR && hunter.getY() < support.getY() + 0.9D) {
-				hunter.setJumping(true);
+				hunter.getJumpControl().jump();
 				return true;
 			}
 

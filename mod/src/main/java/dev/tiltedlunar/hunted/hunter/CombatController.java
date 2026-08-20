@@ -55,6 +55,15 @@ public final class CombatController {
 	/** Vanilla critical hit bonus. */
 	private static final double CRIT_BONUS = 0.5D;
 
+	/**
+	 * How far above or below the target can be and still be hittable.
+	 *
+	 * <p>A little over a block. Past this it is a climbing problem, not a
+	 * fighting one, and pretending otherwise is how a hunter ends up circling
+	 * the foot of a dirt pillar for the rest of the game.
+	 */
+	private static final double VERTICAL_REACH = 1.5D;
+
 	/** A player's entity reach in survival, to the near face of the target. */
 	private static final double PLAYER_REACH = 3.0D;
 
@@ -101,6 +110,16 @@ public final class CombatController {
 			return false;
 		}
 
+		// Close on the flat but well above or below: a pillar, a roof, a hole.
+		// Melee cannot answer that, and holding the tick to strafe around the
+		// bottom of it means the pathfinder never gets a chance to tower up or
+		// dig down. Hand it back and let the route solve the height.
+		double climb = Math.abs(quarry.getY() - hunter.getY());
+		if (climb > VERTICAL_REACH && distance > reachOf(hunter, quarry)) {
+			releaseShield(hunter);
+			return false;
+		}
+
 		if (swingCooldown > 0) {
 			swingCooldown--;
 		}
@@ -133,7 +152,7 @@ public final class CombatController {
 		// while still going up, with fallDistance at zero and no crit at all.
 		if (inReach && swingCooldown == CRIT_HOP_LEAD && hunter.onGround()) {
 			hunter.setSprinting(false);
-			hunter.setJumping(true);
+			hunter.getJumpControl().jump();
 		}
 
 		if (inReach && swingCooldown <= 0) {

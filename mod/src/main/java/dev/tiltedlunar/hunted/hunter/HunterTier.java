@@ -38,13 +38,24 @@ public enum HunterTier {
 	),
 
 	/**
-	 * A player, in every measurable way. The default, and the only tier worth
+	 * A player's body with a compass. The default, and the only tier worth
 	 * losing to.
+	 *
+	 * <p>Every number here is a player's: twenty health, walking speed, one
+	 * point of base damage, no free gear. What it does have is your position,
+	 * always, which is the one thing a manhunt runner has never been able to
+	 * take away from a hunter. Hiding behind a hill does not end it. Leaving
+	 * does.
+	 *
+	 * <p>That is a deliberate split. Making it weaker than you is not
+	 * interesting; making it blind is what made it stop dead in a hole and look
+	 * broken. It knows where you are and still has to get there on foot, with
+	 * gear it went and mined.
 	 */
 	RIVAL(
 			"Rival", 20.0D, 0.1D, 1.0D, 192.0D,
 			true, true, true, true,
-			1.0D, Knowledge.SENSORY, 120, 6_000, 0.0D, true
+			1.0D, Knowledge.OMNISCIENT, 1, 6_000, 0.0D, true
 	),
 
 	/** Faster than a sprinting player, mines quicker, and heals. Openly unfair. */

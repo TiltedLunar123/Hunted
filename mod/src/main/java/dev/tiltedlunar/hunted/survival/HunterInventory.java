@@ -102,6 +102,21 @@ public final class HunterInventory {
 		return counts.isEmpty();
 	}
 
+	/**
+	 * A cheap number that changes whenever the contents change.
+	 *
+	 * <p>For telling whether a stretch of gathering actually produced anything.
+	 * Comparing the whole map every tick would work too, this is just less
+	 * rubbish per tick, and a collision only ever costs one late decision.
+	 */
+	public int fingerprint() {
+		int hash = 17;
+		for (Map.Entry<Item, Integer> entry : counts.entrySet()) {
+			hash += System.identityHashCode(entry.getKey()) * 31 + entry.getValue();
+		}
+		return hash;
+	}
+
 	public Map<Item, Integer> view() {
 		return Map.copyOf(counts);
 	}

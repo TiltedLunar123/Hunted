@@ -254,7 +254,14 @@ public final class HuntedCommand {
 			for (HunterEntity hunter : hunters(level)) {
 				found++;
 				String dimension = level.dimension().identifier().getPath();
-				String doing = hunter.plan().tactic().isEconomy() && hunter.survivalMode()
+				// Only report shopping while it is actually shopping. The
+				// ladder will happily name the next thing it wants long after
+				// the hunter has given up trying to get it, and a status line
+				// that describes an intention rather than an action is worse
+				// than no status line at all.
+				String doing = hunter.plan().tactic().isEconomy()
+						&& hunter.survivalMode()
+						&& !hunter.shoppingAbandoned()
 						? hunter.survival().describe()
 						: hunter.activity().name().toLowerCase(java.util.Locale.ROOT);
 

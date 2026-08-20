@@ -165,11 +165,25 @@ public final class Progression {
 			return new Task.Craft(Recipes.WOODEN_PICKAXE);
 		}
 
-		// Stone.
-		if (!carrying.hasTag(Recipes.STONE_TOOL_MATERIALS, STONE_TARGET)
-				&& !carrying.has(Items.FURNACE, 1)) {
+		// Stone. Worked out from what is still missing rather than from whether
+		// a furnace happens to be in the pack. Owning a furnace used to be read
+		// as proof the mining was done, which holds right up until the furnace
+		// came out of a village chest: then the hunter has never touched stone,
+		// skips the whole rung, and stops dead asking for a stone sword it has
+		// nothing to make.
+		int stoneWanted = 0;
+		if (!carrying.has(Items.STONE_PICKAXE, 1)) {
+			stoneWanted += 3;
+		}
+		if (!carrying.has(Items.STONE_SWORD, 1) && !carrying.has(Items.IRON_SWORD, 1)) {
+			stoneWanted += 2;
+		}
+		if (!carrying.has(Items.FURNACE, 1) && !carrying.has(Items.IRON_INGOT, IRON_TARGET)) {
+			stoneWanted += 8;
+		}
+		if (stoneWanted > 0 && !carrying.hasTag(Recipes.STONE_TOOL_MATERIALS, stoneWanted)) {
 			return new Task.Gather(BlockTags.BASE_STONE_OVERWORLD, Items.COBBLESTONE,
-					STONE_TARGET, Integer.MIN_VALUE);
+					Math.max(stoneWanted, STONE_TARGET), Integer.MIN_VALUE);
 		}
 		if (!carrying.has(Items.STONE_PICKAXE, 1)) {
 			return new Task.Craft(Recipes.STONE_PICKAXE);

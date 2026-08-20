@@ -410,8 +410,12 @@ public final class SurvivalBrain {
 
 	private Directive craft(HunterEntity hunter, ServerLevel level, CraftRecipe recipe) {
 		if (!recipe.canCraft(carrying)) {
-			// The ladder will pick a gathering step next tick.
-			return Directive.working();
+			// The ladder is a pure function of the pack, so it will ask for this
+			// same impossible craft again next tick, and the tick after that.
+			// Standing still waiting for that to change is how a hunter ends up
+			// frozen in a field forever. Go back to hunting instead and let the
+			// next thing it picks up move the ladder on.
+			return Directive.HUNT;
 		}
 
 		if (recipe.needsTable()) {
@@ -659,6 +663,22 @@ public final class SurvivalBrain {
 	private void abandonWork(ServerLevel level, HunterEntity hunter) {
 		resetSite(level, hunter);
 		craftTicks = 0;
+	}
+
+	/**
+	 * Drops every piece of in-progress work and every remembered search.
+	 *
+	 * <p>For the watchdog. If the hunter has genuinely stopped making progress,
+	 * the most likely reason is that it is fixated on a block, a container or a
+	 * sweep that is no longer reachable, and the cheapest way out is to forget
+	 * all of it and look again from where it is now standing.
+	 */
+	public void startOver(ServerLevel level, HunterEntity hunter) {
+		abandonWork(level, hunter);
+		scanner.clear();
+		looter.forgetAll();
+		smeltTicks = 0;
+		butcherTicks = 0;
 	}
 
 	public void save(ValueOutput out) {

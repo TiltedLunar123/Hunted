@@ -1,10 +1,10 @@
 # Hunted
 
-A Minecraft mob that actually hunts you, and plays by your rules while it does
-it. Ten hearts, player walking speed, no free gear, and no idea where you are
-beyond what it can see and hear. It reads the terrain, tunnels through what is
-in the way, bridges gaps it cannot jump, and fights like someone who has played
-the game before. It starts with nothing and mines its own iron first.
+A Minecraft mob that actually hunts you. Ten hearts, player walking speed, no
+free gear, and one advantage: it always knows where you are. It reads the
+terrain, tunnels through what is in the way, bridges gaps it cannot jump, and
+fights like someone who has played the game before. It starts with nothing and
+mines its own iron first.
 
 <p align="center">
   <img src="docs/images/hunter.png" alt="The hunter: a dark armoured figure with a chrome skull and red eyes" width="230">
@@ -81,14 +81,21 @@ The default tier is **Rival**, and a Rival has exactly what you have:
 | Step height | 0.6 | 0.6 |
 | Healing | from food it went and got | from food you went and got |
 | Mining speed | whatever the tool allows | whatever the tool allows |
-| Knowledge of you | line of sight and sound | line of sight and sound |
 | Starting equipment | none | none |
 | Blocks to build with | only what it mined | only what you mined |
+| **Knowledge of you** | **your position, always** | **whatever you can see** |
 
-That constraint is the whole point. A mob with sixty health and your exact
-coordinates is not difficult, it is tedious, and beating it proves nothing.
-Something playing by your rules that still runs you down is a different feeling
-entirely.
+Every physical number is a player's. The last row is not, and that is on
+purpose: it is the compass every manhunt runner has always been chased by. A
+hunter that could genuinely lose you spent most of its time standing in a field
+having lost you, which is not a game. This one knows where you are and still has
+to walk there, through whatever is in the way, carrying gear it went and mined.
+
+Sixty health and a speed boost would be tedious. Knowing where you are is not
+tedious, it is the premise.
+
+If you want one that can be given the slip, **Scout** and **Stalker** work only
+from what they can see and hear.
 
 Two tiers sit **below** a player and are handicapped rather than boosted. Two
 sit above and are openly unfair, which is the reason they are not the default.
@@ -240,8 +247,9 @@ Turn it off with `/hunted taunts false`.
 ## Tiers
 
 The tier decides how good its information about you is, which matters more than
-its stats. A hunter that always knows your exact position cannot be escaped, only
-outrun, and players stop trying to hide once they work that out.
+its stats. The default knows your position outright, so it can be outrun but not
+hidden from. The two below it have to find you, which makes them slower and much
+easier to shake.
 
 Health is in half hearts, the same number the game shows you. Speed is the
 walking speed attribute, where yours is 0.1.
@@ -250,18 +258,18 @@ walking speed attribute, where yours is 0.1.
 | --- | --- | --- | --- | --- | --- |
 | Scout | 20 | 0.085, slower than you | none | sees and hears you | yes |
 | Stalker | 20 | 0.095, slightly slower | breaks blocks | sees and hears you | yes |
-| **Rival** | **20** | **0.1, yours exactly** | **mines and bridges** | **sees and hears you** | **yes, the default** |
+| **Rival** | **20** | **0.1, yours exactly** | **mines and bridges** | **always knows** | **yes on stats, the default** |
 | Enforcer | 30 | 0.13, your sprint while walking | mines and bridges | fixes your position every 3s | no |
 | Relentless | 40 | 0.16, faster than you can sprint | mines and bridges | always knows, everywhere | no |
 
-Breaking line of sight works against the three fair tiers, because they only
-know what they can perceive. Enforcer treats it as a delay. Relentless does not
-care, which is why it is not the default.
+Breaking line of sight works against Scout and Stalker, because they only know
+what they can perceive. Rival and above always know, so hiding buys you nothing
+and distance is the only thing that does.
 
-Losing them is not the same as being rid of them. After about a minute without
-seeing or hearing you a fair tier stops believing its information, walks to
-wherever it last had you, and starts sweeping the area in widening arcs. You
-have to leave, not just hide.
+Against the two that can lose you, losing them is not the same as being rid of
+them. After about a minute without seeing or hearing you they stop believing
+their information, walk to wherever they last had you, and sweep the area in
+widening arcs. You have to leave, not just hide.
 
 ## Commands
 
@@ -311,13 +319,16 @@ were all green while the hunter was, in a running game, completely unable to
 move: vanilla resets a mob's movement input immediately after the hook this mod
 runs in, and nothing that tests a pathfinder in isolation will ever notice that.
 Three more faults of the same kind turned up in the first hour of playing it.
-Verified in game so far: spawning, chasing across open ground, tunnelling
-through a wall, bridging a gap, the whole crafting ladder from an empty pack to
-a stone pickaxe, eating to heal, fighting mobs, breaking off when hurt and
-walling itself in, searching after it loses you, and killing the player.
+Verified in game so far: spawning, chasing across open ground and around walls,
+tunnelling through a wall, bridging a gap, the crafting ladder from an empty
+pack through planks, a table, sticks and a wooden pickaxe to mining stone,
+emptying a chest and crafting an axe out of what it found, eating to heal,
+fighting mobs, breaking off when hurt and walling itself in, giving up on
+gathering and coming for you when the shopping stops paying, and killing the
+player.
 
-Still only proven by unit tests: chest looting, smelting, the water bucket
-clutch, nether portals, the taunt lines, and the four non-default tiers.
+Still only proven by unit tests: smelting, the water bucket clutch, nether
+portals, the taunt lines, and the four non-default tiers.
 
 Longer sessions will find more. If something behaves badly in practice, an issue
 with the tier and what you were doing is genuinely useful.
@@ -337,6 +348,11 @@ Worth saying plainly, so nothing here is a surprise.
   gear, so out-diamonding it is what triggers the upgrade.
 - **It will not dig gravel hoping for flint.** The flint and steel trick needs
   flint it already picked up.
+- **It cannot reliably climb a tall pillar.** If you tower straight up eight
+  blocks it will come to the bottom, place a block or two, and drop back down
+  rather than following you all the way. It will not destroy the terrain trying,
+  and it will not lock up, but it will not reach you either. Pillaring is the
+  best counter to it right now.
 - **It is not a good pathfinder over long open distances yet.** It crosses ground
   fine, but given a goal tens of blocks away with nothing in the way it can drift
   rather than commit, and take longer than it should to arrive.
