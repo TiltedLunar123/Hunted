@@ -28,10 +28,10 @@ jobs:
             primary: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
@@ -54,7 +54,7 @@ jobs:
           --stacktrace
 
       - name: Upload the mod
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hunted-mc${{ matrix.minecraft }}
           path: mod/build/libs/*.jar
@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload the installer
         if: matrix.primary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hunted-installer
           path: launcher/build/libs/*.jar
@@ -70,7 +70,7 @@ jobs:
 
       - name: Publish the test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-report-mc${{ matrix.minecraft }}
           path: |
