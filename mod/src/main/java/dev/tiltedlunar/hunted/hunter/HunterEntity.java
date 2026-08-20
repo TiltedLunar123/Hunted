@@ -190,6 +190,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private boolean searchAnnounced;
 	private boolean dimensionAnnounced;
 
+	@SuppressWarnings({"rawtypes", "unchecked"})
 	public HunterEntity(EntityType<? extends HunterEntity> type, Level level) {
 		super(type, level);
 		setPersistenceRequired();
@@ -210,9 +211,15 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	 * planned a route, reported that it was moving, and then stood perfectly
 	 * still forever. Replacing the control is what lets the path actually
 	 * become motion.
+	 *
+	 * <p>Raw on purpose. {@code MoveControl} gained a type parameter in 26.2
+	 * and does not have one in 26.1.x, so naming the parameter compiles against
+	 * one version and not the other. Nothing here touches the field that
+	 * parameter types, so the raw form is the one that works everywhere.
 	 */
+	@SuppressWarnings({"rawtypes", "unchecked"})
 	private static final class IdleMoveControl
-			extends net.minecraft.world.entity.ai.control.MoveControl<HunterEntity> {
+			extends net.minecraft.world.entity.ai.control.MoveControl {
 
 		IdleMoveControl(HunterEntity mob) {
 			super(mob);
