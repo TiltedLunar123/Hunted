@@ -1,0 +1,31 @@
+{
+	"schemaVersion": 1,
+	"id": "hunted",
+	"version": "${version}",
+	"name": "Hunted",
+	"description": "A relentless pathfinding hunter that tracks you across the world, mines through anything in the way, and follows you between dimensions.",
+	"authors": [
+		"TiltedLunar123"
+	],
+	"contact": {
+		"homepage": "https://github.com/TiltedLunar123/Hunted",
+		"sources": "https://github.com/TiltedLunar123/Hunted",
+		"issues": "https://github.com/TiltedLunar123/Hunted/issues"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.tiltedlunar.hunted.Hunted"
+		],
+		"client": [
+			"dev.tiltedlunar.hunted.client.HuntedClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=${loader_version}",
+		"minecraft": "~${minecraft_version}",
+		"java": ">=${java_version}",
+		"fabric-api": "*"
+	}
+}

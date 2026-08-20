@@ -1,0 +1,9 @@
+// Root project. Everything real lives in :mod and :launcher.
+plugins {
+	id 'base'
+}
+
+allprojects {
+	group = rootProject.maven_group
+	version = rootProject.mod_version
+}

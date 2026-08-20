@@ -1,0 +1,80 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	archivesName = rootProject.archives_base_name
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"hunted" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_version}"
+
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+	useJUnitPlatform()
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+	}
+}
+
+processResources {
+	def v = project.version
+	def mcVersion = rootProject.minecraft_version
+	def loaderVersion = rootProject.loader_version
+	def javaVersion = rootProject.mod_java_version
+	inputs.property "version", v
+	inputs.property "minecraft_version", mcVersion
+	inputs.property "loader_version", loaderVersion
+	inputs.property "java_version", javaVersion
+
+	filesMatching("fabric.mod.json") {
+		expand(
+			"version": v,
+			"minecraft_version": mcVersion,
+			"loader_version": loaderVersion,
+			"java_version": javaVersion
+		)
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = rootProject.mod_java_version as Integer
+	it.options.encoding = 'UTF-8'
+	it.options.compilerArgs << '-Xlint:deprecation' << '-Xlint:unchecked'
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.toVersion(rootProject.mod_java_version)
+	targetCompatibility = JavaVersion.toVersion(rootProject.mod_java_version)
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(rootProject.mod_java_version as Integer)
+	}
+}
+
+jar {
+	from("${rootProject.projectDir}/LICENSE") {
+		rename { "${it}_hunted" }
+	}
+}

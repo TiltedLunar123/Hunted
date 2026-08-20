@@ -1,0 +1,107 @@
+plugins {
+	id 'java'
+	id 'application'
+}
+
+base {
+	archivesName = 'hunted-installer'
+}
+
+// The installer deliberately has zero third party dependencies. It has to run
+// on whatever JRE a player happens to have, and a dependency free jar is the
+// only version of "download one file and double click it" that actually holds.
+dependencies {
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+repositories {
+	mavenCentral()
+}
+
+application {
+	mainClass = 'dev.tiltedlunar.hunted.installer.Installer'
+}
+
+// The installer carries the mod inside it, so a player downloads one file and
+// clicks once. These two tasks are what put it there.
+def bundledDir = layout.buildDirectory.dir('bundled')
+
+// Minecraft 26.x ships deobfuscated, so Loom has nothing to remap and the
+// plain jar task is the finished mod. Older versions produce a remapJar
+// instead, so pick whichever this Minecraft version actually has.
+evaluationDependsOn(':mod')
+def modJarTask = project(':mod').tasks.findByName('remapJar') != null
+		? project(':mod').tasks.named('remapJar')
+		: project(':mod').tasks.named('jar')
+
+def bundleMod = tasks.register('bundleMod', Copy) {
+	from(modJarTask.map { it.archiveFile }) {
+		rename { 'hunted.jar' }
+	}
+	into bundledDir.map { it.dir('bundled') }
+}
+
+def bundleInfo = tasks.register('bundleInfo') {
+	def target = bundledDir.map { it.file('bundled/build.properties') }
+	def modVersion = project.version.toString()
+	def mcVersion = rootProject.minecraft_version
+	def loaderVersion = rootProject.loader_version
+	def supported = rootProject.supported_minecraft_versions
+	// Declared as inputs so a version bump actually regenerates this. Without
+	// them the task has an output and nothing to compare, so Gradle calls it up
+	// to date forever and the installer keeps reporting the previous version.
+	inputs.property('modVersion', modVersion)
+	inputs.property('mcVersion', mcVersion)
+	inputs.property('loaderVersion', loaderVersion)
+	inputs.property('supported', supported)
+	outputs.file(target)
+	doLast {
+		def file = target.get().asFile
+		file.parentFile.mkdirs()
+		file.text = [
+			"mod_version=${modVersion}",
+			"minecraft_version=${mcVersion}",
+			"loader_version=${loaderVersion}",
+			"supported_versions=${supported}",
+			''
+		].join('\n')
+	}
+}
+
+sourceSets.main.resources.srcDir bundledDir
+
+tasks.named('processResources') {
+	dependsOn bundleMod, bundleInfo
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = rootProject.launcher_java_version as Integer
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.toVersion(rootProject.launcher_java_version)
+	targetCompatibility = JavaVersion.toVersion(rootProject.launcher_java_version)
+}
+
+test {
+	useJUnitPlatform()
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+	}
+}
+
+jar {
+	manifest {
+		attributes(
+			'Main-Class': 'dev.tiltedlunar.hunted.installer.Installer',
+			'Implementation-Title': 'Hunted Installer',
+			'Implementation-Version': project.version
+		)
+	}
+	from("${rootProject.projectDir}/LICENSE") {
+		rename { "${it}_hunted" }
+	}
+}

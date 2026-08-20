@@ -1,0 +1,79 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Minecraft ${{ matrix.minecraft }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The shipped build.
+          - minecraft: '26.2'
+            fabric_api: '0.158.0+26.2'
+            primary: true
+          # Proves the source still covers the previous release.
+          - minecraft: '26.1.2'
+            fabric_api: '0.155.2+26.1.2'
+            primary: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Cache Gradle and Loom
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.gradle/loom-cache
+          key: gradle-${{ matrix.minecraft }}-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ matrix.minecraft }}-
+
+      - name: Build and test
+        run: >
+          ./gradlew build
+          -Pminecraft_version=${{ matrix.minecraft }}
+          -Pfabric_api_version=${{ matrix.fabric_api }}
+          --stacktrace
+
+      - name: Upload the mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunted-mc${{ matrix.minecraft }}
+          path: mod/build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Upload the installer
+        if: matrix.primary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunted-installer
+          path: launcher/build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Publish the test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-mc${{ matrix.minecraft }}
+          path: |
+            mod/build/reports/tests
+            launcher/build/reports/tests
+          if-no-files-found: ignore
