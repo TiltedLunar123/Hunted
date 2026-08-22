@@ -83,6 +83,9 @@ The default tier is **Rival**, and a Rival has exactly what you have:
 | Mining speed | whatever the tool allows | whatever the tool allows |
 | Starting equipment | none | none |
 | Blocks to build with | only what it mined | only what you mined |
+| Swimming | slower than walking | slower than walking |
+| Getting hit | knocked back, briefly off balance | knocked back, briefly off balance |
+| Dying | back at world spawn with nothing | back at your spawn with nothing |
 | **Knowledge of you** | **your position, always** | **whatever you can see** |
 
 Every physical number is a player's. The last row is not, and that is on
@@ -280,6 +283,7 @@ widening arcs. You have to leave, not just hide.
 /hunted tier <tier>
 /hunted survival <true|false>
 /hunted taunts <true|false>
+/hunted respawn <true|false>
 /hunted terrain <true|false>
 /hunted dimensions <true|false>
 /hunted glow <true|false>
@@ -321,7 +325,12 @@ in, and nothing that tests a pathfinder in isolation will ever notice that. Ever
 serious fault found so far has been of that kind, living in the seam between the
 mod and the game rather than inside any one piece.
 
-Verified in a running game: spawning and persistence across a restart, chasing
+Verified in a running game: killing it and having it walk back from world spawn
+with nothing, breaking off from a fight it is losing and staying broken off
+rather than turning round every second, going and finding a weapon when it has
+none rather than throwing punches, being knocked about properly when hit,
+swimming slower than the person it is chasing, spawning and persistence across a
+restart, chasing
 across open ground and around walls, tunnelling through a wall, bridging a gap,
 towering up an eight, twelve and twenty block pillar and killing the player at
 the top, digging into a sealed stone room, the crafting ladder from an empty pack
@@ -339,6 +348,12 @@ tiers that build get up a pillar.
 Seen on screen in a real client rather than only in a server log: the model and
 skin, the dark red name tag, the outline through walls, and the taunts arriving
 in chat.
+
+Measured rather than guessed at, on a flat world with a stopwatch: it travels at
+6.3 blocks a second, against 5.6 for plain sprinting, because it sprint jumps the
+way people do rather than simply running. It crosses deep water at about 1.5,
+against roughly 2 for someone swimming. Hit while it is charging you it gives up
+a block of ground, where before it gave up a third of one and kept coming.
 
 Still not verified in a running game: the smoker, crafting and filling the water
 bucket rather than being handed one, and the flint and steel and hay bale food
@@ -372,6 +387,12 @@ Worth saying plainly, so nothing here is a surprise.
   server with other people about, someone else usually keeps it awake.
 - **It does not fight everything.** It kills what is hitting it or standing in
   the doorway, backs off from creepers and wardens, and walks past the rest.
+- **Killing it is not the end of it.** It comes back at the world spawn with an
+  empty pack and walks. That is the same deal you get, and it is the point. Turn
+  it off with `/hunted respawn false` if you would rather beat it once.
+- **It gives no experience for a replacement.** Only the first one is worth
+  anything, because a thing that comes back on a timer is otherwise a farm you
+  stand next to rather than something hunting you.
 
 ## Credits
 

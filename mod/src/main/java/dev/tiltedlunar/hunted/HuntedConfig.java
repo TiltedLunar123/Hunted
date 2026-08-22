@@ -37,6 +37,7 @@ public final class HuntedConfig {
 	private boolean glowing = false;
 	private boolean survivalStart = true;
 	private boolean taunts = true;
+	private boolean respawn = true;
 	private int maxHuntersPerPlayer = 1;
 	private int spawnDistance = 48;
 
@@ -172,6 +173,22 @@ public final class HuntedConfig {
 	 * <p>It speaks on a change of plan rather than on a timer, with a hard
 	 * floor between lines, so a quiet chase stays mostly quiet.
 	 */
+	/**
+	 * Whether killing a hunter is the end of it.
+	 *
+	 * <p>On by default, because a hunter that stays dead turns the whole mod
+	 * into one fight you either win or lose. It comes back at the world spawn
+	 * with nothing, which is the same deal the player gets.
+	 */
+	public boolean respawn() {
+		return respawn;
+	}
+
+	public void setRespawn(boolean value) {
+		this.respawn = value;
+		save();
+	}
+
 	public boolean taunts() {
 		return taunts;
 	}

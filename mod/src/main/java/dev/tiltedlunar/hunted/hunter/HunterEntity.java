@@ -18,6 +18,7 @@ import dev.tiltedlunar.hunted.tactics.Readiness;
 import dev.tiltedlunar.hunted.tactics.Scout;
 import dev.tiltedlunar.hunted.tactics.Tactic;
 import dev.tiltedlunar.hunted.tactics.Tactics;
+import dev.tiltedlunar.hunted.tactics.Tactics.Plan;
 import dev.tiltedlunar.hunted.taunt.Taunter;
 import dev.tiltedlunar.hunted.taunt.Taunts;
 import net.minecraft.core.BlockPos;
@@ -159,6 +160,54 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	 */
 	private static final double WANDER_RADIUS = 3.0D;
 
+	/**
+	 * How far it wants between itself and the fight before it stops running.
+	 *
+	 * <p>Well outside the range anything decides to engage at, because coming
+	 * to a halt at the edge of that range only means turning round and doing
+	 * the whole thing again.
+	 */
+	private static final double BROKEN_OFF = 26.0D;
+
+	/** Longest it will keep running, however the fight is going. */
+	private static final int BREAK_OFF_LIMIT = 900;
+
+	/**
+	 * How long after a retreat before it is allowed to start another.
+	 *
+	 * <p>Without this a hunter that cannot heal is stuck: it is hurt, so it
+	 * withdraws, so it gets clear, so it is still hurt, so it withdraws again,
+	 * and it spends the rest of the game walking backwards. The rest is what
+	 * makes it turn round and deal with the situation, which for a hunter with
+	 * an economy means going and making something and eating, and for one
+	 * without means fighting at the health it has.
+	 */
+	private static final int BREAK_OFF_REST = 400;
+
+	/**
+	 * Ticks after a hit during which it stops driving itself forward.
+	 *
+	 * <p>Knockback is applied to velocity, and velocity is exactly what full
+	 * forward input on the ground cancels. A player who is hit goes backwards
+	 * because they are in the air and cannot do anything about it; this mob was
+	 * standing on the floor holding W, so it absorbed the hit and barely moved,
+	 * which made hitting it feel like hitting a wall. Five ticks is about as
+	 * long as the knockback is worth anything.
+	 */
+	private static final int STAGGER = 5;
+
+	/** How far ahead a retreat checks that a bearing is actually open. */
+	private static final int FLEE_RUNWAY = 6;
+
+	/** Deepest drop a retreat will still call ground rather than a cliff. */
+	private static final int FLEE_DROP = 3;
+
+	/** Steps either side of straight back that it will consider. */
+	private static final int FLEE_ARC_STEPS = 6;
+
+	/** How far apart those steps are. Fifteen degrees. */
+	private static final double FLEE_ARC = Math.PI / 12.0D;
+
 	/** Ticks the watchdog keeps walking once it has decided to shove. */
 	private static final int NUDGE_TICKS = 30;
 
@@ -236,12 +285,16 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private int searchTicks;
 	private int searchLeg;
 	private boolean backingOff;
+	private boolean breakingOff;
+	private int breakOffTicks;
+	private int breakOffRest;
 	private net.minecraft.world.phys.Vec3 lastSeenAt;
 	private int lastBroken;
 	private int lastPlaced;
 	private int brokeRecently;
 	private int laidRecently;
 	private int stalledFor;
+	private int staggerTicks;
 	private float nudgeYaw;
 	private int workPulse;
 	private int lastPulse;
@@ -292,6 +345,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	/** Whoever it was chasing when it last had someone, so it can still talk. */
 	private ServerPlayer lastQuarry;
 	private boolean spawnAnnounced;
+	private boolean respawned;
 	private boolean searchAnnounced;
 	private boolean dimensionAnnounced;
 
@@ -329,13 +383,27 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private static final class IdleMoveControl
 			extends net.minecraft.world.entity.ai.control.MoveControl {
 
+		private final HunterEntity hunter;
+
 		IdleMoveControl(HunterEntity mob) {
 			super(mob);
+			this.hunter = mob;
 		}
 
 		@Override
 		public void tick() {
-			// Deliberately empty. PathFollower owns zza and xxa.
+			// Steers nothing. PathFollower owns zza and xxa.
+			//
+			// It does take the legs away for a few ticks after a hit. Vanilla
+			// runs this after customServerAiStep, and after every one of the
+			// dozen ways out of it, which makes it the only place that can hold
+			// the input down without repeating a check at each of them. The
+			// seam that has caused every serious bug in this mod turns out to
+			// be good for exactly one thing, and this is it.
+			if (hunter.staggering()) {
+				hunter.zza = 0.0f;
+				hunter.xxa = 0.0f;
+			}
 		}
 	}
 
@@ -460,6 +528,8 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		float before = getHealth();
 		boolean hurt = super.hurtServer(level, source, amount);
 		if (hurt) {
+			// Let the knockback actually move it. See STAGGER.
+			staggerTicks = STAGGER;
 			// Record what actually landed, after armour and shields, because
 			// the raw number would have it fleeing from damage it shrugged off.
 			damageClock.record(before - getHealth());
@@ -525,6 +595,12 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		}
 		if (watchdog(level)) {
 			return;
+		}
+
+		// The legs are taken away by the move control, not here, so that being
+		// hit does not also stop it swinging back. See STAGGER.
+		if (staggerTicks > 0) {
+			staggerTicks--;
 		}
 
 		if (tier.regenPerTick() > 0.0D && getHealth() < getMaxHealth()) {
@@ -595,7 +671,8 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		// Fair tiers break off when hurt. The unfair ones do not flinch, which
 		// is most of what makes them read as machines rather than opponents.
 		boolean retreatAllowed = tier.fair();
-		plan = Tactics.choose(reading, self, survivalMode, retreatAllowed);
+		plan = commitToBreakingOff(Tactics.choose(reading, self, survivalMode, retreatAllowed),
+				quarry, retreatAllowed, survivalMode);
 
 		taunter.tick(quarry, getRandom(), plan.tactic(),
 				survivalMode ? survival.describe() : null,
@@ -675,6 +752,76 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		}
 
 		navigate(level, tier);
+	}
+
+	/**
+	 * Makes a decision to run away stick.
+	 *
+	 * <p>The tactics are worked out fresh every tick from what is true right
+	 * now, which is right for almost everything and badly wrong for this one.
+	 * The moment the hunter breaks off, nobody is hitting it any more, so the
+	 * damage clock decays, so it stops reading as being in trouble, so the very
+	 * next tick it decides it is fine and turns round. Two steps later it is
+	 * back in range, gets hit, and runs again. From the other end that looks
+	 * like something panicking on the spot rather than something retreating,
+	 * and it never actually gets away.
+	 *
+	 * <p>So the decision latches. Once it is running it keeps running until it
+	 * has real distance and some health back, or until it has spent long enough
+	 * running that something else has clearly gone wrong.
+	 */
+	private Tactics.Plan commitToBreakingOff(Tactics.Plan fresh, ServerPlayer quarry,
+			boolean retreatAllowed, boolean canGearUp) {
+		if (!retreatAllowed) {
+			breakingOff = false;
+			breakOffTicks = 0;
+			breakOffRest = 0;
+			return fresh;
+		}
+
+		// A target about to die is the one thing worth turning round for.
+		// Letting them walk away to eat is how a won fight is lost.
+		if (fresh.tactic() == Tactic.PRESS) {
+			breakingOff = false;
+			breakOffTicks = 0;
+			return fresh;
+		}
+
+		// Just finished running. Being hurt is still true and will stay true
+		// until it does something about it, so this is where it does something
+		// about it rather than setting off again.
+		if (breakOffRest > 0) {
+			breakOffRest--;
+			if (fresh.tactic() == Tactic.WITHDRAW) {
+				return canGearUp
+						? new Plan(Tactic.GEAR_UP, "clear of them, patching itself up")
+						: new Plan(Tactic.ENGAGE, "nowhere to run to, so it fights");
+			}
+			return fresh;
+		}
+
+		if (fresh.tactic() == Tactic.WITHDRAW && !breakingOff) {
+			breakingOff = true;
+			breakOffTicks = 0;
+		}
+
+		if (!breakingOff) {
+			return fresh;
+		}
+
+		breakOffTicks++;
+		if (distanceTo(quarry) < BROKEN_OFF && breakOffTicks <= BREAK_OFF_LIMIT) {
+			return new Plan(Tactic.WITHDRAW, "broken off, staying away until clear");
+		}
+
+		// Far enough, or it has been running long enough to admit that running
+		// is not working on its own.
+		breakingOff = false;
+		breakOffTicks = 0;
+		breakOffRest = BREAK_OFF_REST;
+		return canGearUp
+				? new Plan(Tactic.GEAR_UP, "clear of them, patching itself up")
+				: new Plan(Tactic.ENGAGE, "nowhere to run to, so it fights");
 	}
 
 	/**
@@ -770,7 +917,17 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 				.orElse(null);
 	}
 
-	/** Puts distance between the hunter and something it should not be near. */
+	/**
+	 * Puts distance between the hunter and something it should not be near.
+	 *
+	 * <p>Straight away from the threat is the direction it wants, and often not
+	 * a direction it can use. Running dead into a cliff face and pressing
+	 * against it is not a retreat, and because it is holding the movement input
+	 * the whole time it does not even register as stuck for fifteen seconds.
+	 * So it takes the best open bearing within a quarter turn of the one it
+	 * wants, which is what a person does when they turn to run and there is a
+	 * wall there.
+	 */
 	private void backAwayFrom(net.minecraft.world.entity.LivingEntity threat) {
 		setShiftKeyDown(false);
 
@@ -779,8 +936,24 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		double dz = getZ() - threat.getZ();
 		double length = Math.sqrt(dx * dx + dz * dz);
 		if (length > 1.0e-4D) {
-			float yaw = (float) (net.minecraft.util.Mth.atan2(dz / length, dx / length)
-					* (180.0D / Math.PI)) - 90.0f;
+			double want = net.minecraft.util.Mth.atan2(dz / length, dx / length);
+			double best = want;
+			int furthest = -1;
+			for (int step = 0; step <= FLEE_ARC_STEPS; step++) {
+				// Straight back first, then alternate sides, so a tie keeps the
+				// bearing it actually wanted.
+				double swing = (step + 1) / 2 * FLEE_ARC * ((step % 2 == 0) ? 1.0D : -1.0D);
+				double angle = want + swing;
+				int open = runway(angle);
+				if (open > furthest) {
+					furthest = open;
+					best = angle;
+					if (open >= FLEE_RUNWAY) {
+						break;
+					}
+				}
+			}
+			float yaw = (float) (best * (180.0D / Math.PI)) - 90.0f;
 			setYRot(yaw);
 			yBodyRot = yaw;
 			yHeadRot = yaw;
@@ -789,7 +962,45 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		setSprinting(true);
 		this.xxa = 0.0f;
 		this.zza = 1.0f;
+		// A fence or a single block is not a reason to stop running.
+		if (horizontalCollision) {
+			getJumpControl().jump();
+		}
 		setActivity(PathFollower.State.MOVING);
+	}
+
+	/**
+	 * How many blocks it could run along a bearing before something stops it.
+	 *
+	 * <p>Deliberately cheap: a handful of block lookups, no search. It is
+	 * asking "is there floor here and room to stand", which is enough to tell a
+	 * clear field from a cliff edge or the inside of a hill, and it is running
+	 * away, so it does not have time for anything better.
+	 */
+	private int runway(double angle) {
+		double sx = Math.cos(angle);
+		double sz = Math.sin(angle);
+		BlockPos from = blockPosition();
+		for (int out = 1; out <= FLEE_RUNWAY; out++) {
+			BlockPos at = from.offset((int) Math.round(sx * out), 0, (int) Math.round(sz * out));
+			// Room for a body.
+			if (!level().getBlockState(at).isAir() || !level().getBlockState(at.above()).isAir()) {
+				return out - 1;
+			}
+			// Floor, or at worst a step it can drop down without dying.
+			boolean floor = false;
+			for (int down = 1; down <= FLEE_DROP; down++) {
+				BlockPos under = at.below(down);
+				if (level().getBlockState(under).isCollisionShapeFullBlock(level(), under)) {
+					floor = true;
+					break;
+				}
+			}
+			if (!floor) {
+				return out - 1;
+			}
+		}
+		return FLEE_RUNWAY;
 	}
 
 	private void idle() {
@@ -1409,6 +1620,17 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	// -----------------------------------------------------------------
 
 	/**
+	 * Whether it is still riding out the last hit it took.
+	 *
+	 * <p>See STAGGER. Read by the move control, which is the last thing on the
+	 * tick and therefore the only place that catches every path out of the AI
+	 * step.
+	 */
+	public boolean staggering() {
+		return staggerTicks > 0;
+	}
+
+	/**
 	 * Whether the hunter is permitted to break or place anything at all.
 	 *
 	 * <p>Respects the vanilla mobGriefing rule as well as the mod's own switch,
@@ -1559,6 +1781,39 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		return hit;
 	}
 
+	/**
+	 * Books its own replacement on the way out.
+	 *
+	 * <p>Vanilla calls this once, on the tick the health reaches zero, while
+	 * the entity is still in the world and still knows who it was after. A
+	 * tick later there is nothing left to ask, which is why the booking is
+	 * taken here and kept somewhere that outlives the body.
+	 */
+	@Override
+	public void die(DamageSource cause) {
+		super.die(cause);
+		if (level() instanceof ServerLevel) {
+			Respawns.schedule(this);
+		}
+	}
+
+	/**
+	 * Marks a hunter as a replacement rather than a first arrival, so it says
+	 * the line about being put back instead of introducing itself.
+	 */
+	public void markRespawned() {
+		this.respawned = true;
+		this.spawnAnnounced = true;
+		// No experience for a replacement. It costs nothing to make and it
+		// arrives on a timer, so paying out for each one turns the thing that
+		// is supposed to be hunting you into a farm you stand next to.
+		this.xpReward = 0;
+	}
+
+	public boolean respawned() {
+		return respawned;
+	}
+
 	public void onBrokeBlock(BlockPos pos) {
 		blocksBroken++;
 		forgetTerrain();
@@ -1639,6 +1894,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		// Otherwise it introduces itself again every time the chunk reloads,
 		// which is a good line exactly once.
 		out.putBoolean("Announced", spawnAnnounced);
+		out.putBoolean("Respawned", respawned);
 		survival.save(out);
 		if (crossingPoint != null) {
 			out.putLong("CrossingPoint", crossingPoint.asLong());
@@ -1656,6 +1912,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		blocksBroken = in.getIntOr("BlocksBroken", 0);
 		blocksPlaced = in.getIntOr("BlocksPlaced", 0);
 		spawnAnnounced = in.getBooleanOr("Announced", false);
+		respawned = in.getBooleanOr("Respawned", false);
 		survival.load(in);
 		if (in.getLong("CrossingPoint").isPresent()) {
 			crossingPoint = BlockPos.of(in.getLongOr("CrossingPoint", 0L));

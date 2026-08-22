@@ -42,6 +42,18 @@ public record Readiness(
 		return gear * condition;
 	}
 
+	/**
+	 * Nothing on it at all: bare hands and bare skin.
+	 *
+	 * <p>Worth its own question because an empty handed hunter is the one case
+	 * where charging a defenceless target is the wrong call. Two people
+	 * swinging fists is a long fight, and only one of them can walk off and
+	 * come back with a sword.
+	 */
+	public boolean emptyHanded() {
+		return weapon == WeaponClass.NONE && armour <= 0 && !shield;
+	}
+
 	/** True when the hunter is hurt badly enough that another trade is a gamble. */
 	public boolean hurt() {
 		return healthFraction <= 0.3D;
