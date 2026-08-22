@@ -112,7 +112,16 @@ public final class HunterInventory {
 	public int fingerprint() {
 		int hash = 17;
 		for (Map.Entry<Item, Integer> entry : counts.entrySet()) {
-			hash += System.identityHashCode(entry.getKey()) * 31 + entry.getValue();
+			// Combined with exclusive or rather than added. A sum cancels on
+			// exactly the change most worth noticing: every smelt and most
+			// crafts take one of something away and put one of something else
+			// back, so the two counts move by minus one and plus one and the
+			// total lands where it started. A hunter that had just turned an
+			// ore into an ingot looked, to every caller of this, like a hunter
+			// that had been standing still doing nothing.
+			int term = System.identityHashCode(entry.getKey()) * 31
+					+ entry.getValue() * 0x9E3779B9;
+			hash ^= term ^ (term >>> 15);
 		}
 		return hash;
 	}

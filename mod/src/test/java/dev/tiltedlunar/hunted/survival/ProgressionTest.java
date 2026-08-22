@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -301,5 +302,53 @@ class ProgressionTest {
 				.filter(need -> need.item() == Items.IRON_INGOT)
 				.mapToInt(CraftRecipe.Need::count)
 				.sum();
+	}
+
+	@Test
+	@DisplayName("swapping one item for another changes the fingerprint")
+	void fingerprintNoticesASwap() {
+		// This is what a smelt looks like from the outside: one raw iron out,
+		// one ingot in. The counts move by minus one and plus one, so a
+		// fingerprint that added its terms together landed back where it
+		// started and reported a pack that had visibly changed as untouched.
+		// Both the give up clock and the stall watchdog read that as a hunter
+		// standing still doing nothing, and shoved it off the furnace part way
+		// through a stack.
+		HunterInventory carrying = new HunterInventory();
+		carrying.add(Items.RAW_IRON, 20);
+		carrying.add(Items.IRON_INGOT, 1);
+		int before = carrying.fingerprint();
+
+		carrying.consume(Items.RAW_IRON, 1);
+		carrying.add(Items.IRON_INGOT, 1);
+
+		assertNotEquals(before, carrying.fingerprint(),
+				"one item swapped for another has to look different");
+	}
+
+	@Test
+	@DisplayName("the fingerprint is stable when nothing happens")
+	void fingerprintIsStableWhenIdle() {
+		HunterInventory carrying = new HunterInventory();
+		carrying.add(Items.COBBLESTONE, 12);
+		carrying.add(Items.OAK_LOG, 3);
+
+		assertEquals(carrying.fingerprint(), carrying.fingerprint(),
+				"reading it twice must not change it");
+	}
+
+	@Test
+	@DisplayName("gaining and spending the same item both show up")
+	void fingerprintNoticesEitherDirection() {
+		HunterInventory carrying = new HunterInventory();
+		carrying.add(Items.COAL, 5);
+		int full = carrying.fingerprint();
+
+		carrying.consume(Items.COAL, 1);
+		int spent = carrying.fingerprint();
+		assertNotEquals(full, spent, "spending one has to look different");
+
+		carrying.add(Items.COAL, 1);
+		assertEquals(full, carrying.fingerprint(), "putting it back has to look the same again");
 	}
 }

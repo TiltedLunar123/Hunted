@@ -309,26 +309,41 @@ To build against a different Minecraft version, change `minecraft_version` and
 
 ## Status
 
-It compiles clean with no warnings, and 83 tests cover the pathfinder, the
+It compiles clean with no warnings, and 88 tests cover the pathfinder, the
 interception maths, the tactics, the crafting ladder and the installer,
 including a full install run against a local server.
 
-It has also been run on a real Minecraft 26.2 dedicated server and watched
-hunting a real player, which is the only reason any of it works. The unit tests
-were all green while the hunter was, in a running game, completely unable to
-move: vanilla resets a mob's movement input immediately after the hook this mod
-runs in, and nothing that tests a pathfinder in isolation will ever notice that.
-Three more faults of the same kind turned up in the first hour of playing it.
-Verified in game so far: spawning, chasing across open ground and around walls,
-tunnelling through a wall, bridging a gap, the crafting ladder from an empty
-pack through planks, a table, sticks and a wooden pickaxe to mining stone,
-emptying a chest and crafting an axe out of what it found, eating to heal,
-fighting mobs, breaking off when hurt and walling itself in, giving up on
-gathering and coming for you when the shopping stops paying, and killing the
-player.
+None of that is the reason to trust it. It has been run on a real Minecraft 26.2
+dedicated server and watched hunting a real player, which is. The unit tests were
+all green while the hunter was, in a running game, completely unable to move:
+vanilla resets a mob's movement input immediately after the hook this mod runs
+in, and nothing that tests a pathfinder in isolation will ever notice that. Every
+serious fault found so far has been of that kind, living in the seam between the
+mod and the game rather than inside any one piece.
 
-Still only proven by unit tests: smelting, the water bucket clutch, nether
-portals, the taunt lines, and the four non-default tiers.
+Verified in a running game: spawning and persistence across a restart, chasing
+across open ground and around walls, tunnelling through a wall, bridging a gap,
+towering up an eight, twelve and twenty block pillar and killing the player at
+the top, digging into a sealed stone room, the crafting ladder from an empty pack
+through planks, a table, sticks and a wooden pickaxe to mining stone, emptying a
+chest and crafting an axe out of what it found, smelting a run of iron without
+being interrupted, the water bucket clutch surviving a forty block drop and
+picking the bucket back up, following a player through a nether portal, eating to
+heal, fighting mobs, breaking off when hurt and walling itself in, searching
+after losing the trail, giving up on gathering and coming for you when the
+shopping stops paying, switching to a wounded player mid chase, the taunt lines,
+and killing the player. All five tiers were checked against the two obstacles
+that separate them: only the tiers that mine get into a sealed room, and only the
+tiers that build get up a pillar.
+
+Seen on screen in a real client rather than only in a server log: the model and
+skin, the dark red name tag, the outline through walls, and the taunts arriving
+in chat.
+
+Still not verified in a running game: the smoker, crafting and filling the water
+bucket rather than being handed one, and the flint and steel and hay bale food
+paths. Those are covered by unit tests and by reading, which the paragraph above
+should tell you is not the same thing.
 
 Longer sessions will find more. If something behaves badly in practice, an issue
 with the tier and what you were doing is genuinely useful.
@@ -348,14 +363,13 @@ Worth saying plainly, so nothing here is a surprise.
   gear, so out-diamonding it is what triggers the upgrade.
 - **It will not dig gravel hoping for flint.** The flint and steel trick needs
   flint it already picked up.
-- **It cannot reliably climb a tall pillar.** If you tower straight up eight
-  blocks it will come to the bottom, place a block or two, and drop back down
-  rather than following you all the way. It will not destroy the terrain trying,
-  and it will not lock up, but it will not reach you either. Pillaring is the
-  best counter to it right now.
 - **It is not a good pathfinder over long open distances yet.** It crosses ground
   fine, but given a goal tens of blocks away with nothing in the way it can drift
   rather than commit, and take longer than it should to arrive.
+- **A hunter in unloaded chunks is a hunter that is not thinking.** That is how
+  Minecraft works and this mod does not change it. Walk far enough away in single
+  player and the one behind you stops where it stands until you come back. On a
+  server with other people about, someone else usually keeps it awake.
 - **It does not fight everything.** It kills what is hitting it or standing in
   the doorway, backs off from creepers and wardens, and walks past the rest.
 

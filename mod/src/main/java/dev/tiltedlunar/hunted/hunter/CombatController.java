@@ -114,8 +114,26 @@ public final class CombatController {
 		// Melee cannot answer that, and holding the tick to strafe around the
 		// bottom of it means the pathfinder never gets a chance to tower up or
 		// dig down. Hand it back and let the route solve the height.
-		double climb = Math.abs(quarry.getY() - hunter.getY());
-		if (climb > VERTICAL_REACH && distance > reachOf(hunter, quarry)) {
+		//
+		// Height decides this on its own. Guarding it on the straight line
+		// distance as well let the whole thing through in exactly the case it
+		// was written for: someone standing three blocks directly overhead is
+		// three blocks away, which is inside a sword's reach, so the hunter
+		// would stop at the foot of the tower it was building and circle and
+		// swing at the air underneath them until the trail went cold.
+		if (Math.abs(quarry.getY() - hunter.getY()) > VERTICAL_REACH) {
+			releaseShield(hunter);
+			return false;
+		}
+
+		// Something solid in between is the same kind of problem, and needs the
+		// same answer. Nothing here checked, so a quarry that walled itself in
+		// was still inside engage range and still worth charging at: the hunter
+		// would close on the outside of the box, lean on it, and stay there
+		// with a pickaxe in its hand and a plan it was perfectly happy with.
+		// A player cannot hit through a wall either. Hand it back and let the
+		// route dig.
+		if (!hunter.hasLineOfSight(quarry)) {
 			releaseShield(hunter);
 			return false;
 		}

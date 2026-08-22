@@ -162,6 +162,30 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	/** Ticks the watchdog keeps walking once it has decided to shove. */
 	private static final int NUDGE_TICKS = 30;
 
+	/**
+	 * How long a break or a place stays on the books when deciding whether the
+	 * hunter is churning. Two seconds, which is longer than the gap between
+	 * one and the next in every churn seen so far, and shorter than any real
+	 * stretch of work that only ever digs or only ever builds.
+	 */
+	private static final int CHURN_WINDOW = 40;
+
+	/**
+	 * How long the hunter keeps doing without one of its tools after a rescue.
+	 *
+	 * <p>Ten seconds. Long enough for the awkward route to be planned and most
+	 * of the way walked, short enough that a hunter which has genuinely got
+	 * past the problem is not still handicapped by it a minute later.
+	 */
+	private static final int IMPROVISE_TICKS = 200;
+
+	/**
+	 * Ticks of walking straight at the target when the planner cannot find any
+	 * route at all. Three seconds, then it is worth asking the planner again in
+	 * case blundering forwards has changed the picture.
+	 */
+	private static final int CHARGE_TICKS = 60;
+
 	/** Close enough to the last sighting to start casting around for a trail. */
 	private static final double SEARCH_ARRIVE = 4.0D;
 
@@ -215,12 +239,18 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 	private net.minecraft.world.phys.Vec3 lastSeenAt;
 	private int lastBroken;
 	private int lastPlaced;
+	private int brokeRecently;
+	private int laidRecently;
 	private int stalledFor;
 	private float nudgeYaw;
 	private int workPulse;
 	private int lastPulse;
 	private int lastCarried = -1;
+	private int lastPack = -1;
 	private int economyDry;
+	private int improviseFor;
+	private int improviseMode;
+	private int chargeFor;
 
 	/**
 	 * How far around itself to look for a portal.
@@ -490,6 +520,9 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 
 		HunterTier tier = tier();
 		damageClock.tick();
+		if (improviseFor > 0) {
+			improviseFor--;
+		}
 		if (watchdog(level)) {
 			return;
 		}
@@ -568,7 +601,7 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 				survivalMode ? survival.describe() : null,
 				quarry.getMaxHealth() > 0.0f ? quarry.getHealth() / quarry.getMaxHealth() : 1.0f);
 
-		if (plan.tactic().isEconomy() && !economyGaveUp()) {
+		if (plan.tactic().isEconomy()) {
 			Progression.Focus focus = plan.tactic() == Tactic.COUNTER_SHIELD
 					? Progression.Focus.SHIELD_BREAKER
 					: Progression.Focus.NONE;
@@ -585,23 +618,31 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 			} else if (room >= WORKING_ROOM) {
 				backingOff = false;
 			}
+			// The give up clock starts once it is actually able to work.
+			// Manoeuvring into position does not change the pack, so running it
+			// during the withdrawal spent the whole twenty seconds before the
+			// hunter had picked anything up: it sprinted away for the full
+			// count and then turned round and charged with whatever it happened
+			// to be holding, which read as the mod losing its nerve.
 			if (backingOff) {
 				backAwayFrom(quarry);
 				return;
 			}
 
-			SurvivalBrain.Directive directive =
-					survival.tick(this, level, distanceTo(quarry), focus);
-			if (directive.busy()) {
-				if (directive.goal() == null) {
-					this.zza = 0.0f;
-					this.xxa = 0.0f;
-					setActivity(PathFollower.State.MINING);
+			if (!economyGaveUp()) {
+				SurvivalBrain.Directive directive =
+						survival.tick(this, level, distanceTo(quarry), focus);
+				if (directive.busy()) {
+					if (directive.goal() == null) {
+						this.zza = 0.0f;
+						this.xxa = 0.0f;
+						setActivity(PathFollower.State.MINING);
+						return;
+					}
+					planTowards(level, tier, directive.goal());
+					follow(level);
 					return;
 				}
-				planTowards(level, tier, directive.goal());
-				follow(level);
-				return;
 			}
 		}
 
@@ -877,6 +918,12 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		// broken mod looks like.
 		BlockPos aim = tracker.cold() ? sweepAround(goal) : intercept(goal);
 
+		// The planner came back empty. Walk at them until it is worth asking again.
+		if (chargeFor > 0) {
+			charge(level, aim);
+			return;
+		}
+
 		// Let it finish the block it is already breaking. Handing the follower
 		// a fresh path throws away the progress on the current block, and the
 		// replan timer fires every sixty ticks, so anything that takes longer
@@ -985,13 +1032,40 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		//
 		// Breaking and placing together does not count. A hunter that puts a
 		// block down and immediately takes it back up again is not building
-		// anything, it is chewing a hole in the world on the spot, and both
-		// counters climbing in step is exactly what that looks like from here.
+		// anything, it is chewing a hole in the world on the spot.
+		//
+		// Measured over a window rather than within one tick. The two never
+		// land on the same tick: breaking takes as long as the block is hard
+		// and placing is instant, so they alternate a second apart. Asking
+		// whether both happened on this tick meant the answer was always no,
+		// and the check that was supposed to catch the worst stall in here
+		// never once fired.
 		int broke = blocksBroken - lastBroken;
 		int laid = blocksPlaced - lastPlaced;
-		boolean churning = broke > 0 && laid > 0;
+		if (broke != 0) {
+			brokeRecently = CHURN_WINDOW;
+		} else if (brokeRecently > 0) {
+			brokeRecently--;
+		}
+		if (laid != 0) {
+			laidRecently = CHURN_WINDOW;
+		} else if (laidRecently > 0) {
+			laidRecently--;
+		}
+		// A change in the pack counts too. Smelting is the one job that moves
+		// nothing, breaks nothing, places nothing and swings at nothing: the
+		// hunter stands at a furnace for two hundred ticks per item and every
+		// other test here reads that as paralysis. One item fitted inside the
+		// patience and a stack did not, so it would cook a single piece of ore
+		// and then be shoved off the furnace, over and over.
+		int carried = survival.carrying().fingerprint();
+		boolean restocked = carried != lastPack;
+		lastPack = carried;
+
+		boolean churning = brokeRecently > 0 && laidRecently > 0;
 		boolean worked = !churning
-				&& (broke != 0 || laid != 0 || digestTicks > 0 || workPulse != lastPulse);
+				&& (broke != 0 || laid != 0 || digestTicks > 0 || restocked
+						|| workPulse != lastPulse);
 
 		lastBroken = blocksBroken;
 		lastPlaced = blocksPlaced;
@@ -1011,6 +1085,16 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 			survival.startOver(level, this);
 			searchSpot = null;
 			searchTicks = 0;
+			// Tearing up the plan on its own is not enough, and never was. The
+			// world has not changed, so the search runs again from the same
+			// place to the same goal and hands back the identical route that
+			// just failed, which is how a hunter comes to be rescued from the
+			// same corner every fifteen seconds for the rest of the game.
+			// Taking one of its tools away for a while forces a different
+			// answer: with nothing to build with it has to tunnel, and with
+			// nothing to dig with it has to climb.
+			improviseMode++;
+			improviseFor = IMPROVISE_TICKS;
 			return false;
 		}
 
@@ -1176,14 +1260,56 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 				List<PathStep> steps = search.path();
 				if (!steps.isEmpty()) {
 					follower.setPath(level, getId(), steps);
+					chargeFor = 0;
+				} else {
+					// No route at all. Keeping the old path means following
+					// something already walked to the end, arriving, throwing
+					// the plan away and asking again, which produces the same
+					// nothing for as long as the geometry lasts. Head in the
+					// right direction on foot instead and deal with whatever
+					// is in the way when it is close enough to touch.
+					chargeFor = CHARGE_TICKS;
 				}
 				search = null;
 			}
 		}
 	}
 
+	/**
+	 * Walking at the target with no plan at all.
+	 *
+	 * <p>The bluntest thing the hunter can do, and the last thing it tries. A
+	 * route that cannot be found from here may well be findable from twenty
+	 * blocks nearer, and standing still while the planner says no is the one
+	 * outcome that is always wrong.
+	 */
+	private void charge(ServerLevel level, BlockPos goal) {
+		chargeFor--;
+		setShiftKeyDown(false);
+
+		double dx = goal.getX() + 0.5D - getX();
+		double dz = goal.getZ() + 0.5D - getZ();
+		if (dx * dx + dz * dz > 1.0e-6D) {
+			float yaw = (float) (net.minecraft.util.Mth.atan2(dz, dx) * (180.0D / Math.PI)) - 90.0f;
+			setYRot(yaw);
+			yBodyRot = yaw;
+			yHeadRot = yaw;
+		}
+		getLookControl().setLookAt(net.minecraft.world.phys.Vec3.atCenterOf(goal));
+		setSpeed((float) getAttributeValue(Attributes.MOVEMENT_SPEED));
+		setSprinting(tier().canSprint());
+		this.xxa = 0.0f;
+		this.zza = 1.0f;
+
+		// Anything low enough to step over gets jumped rather than walked into.
+		if (horizontalCollision || goal.getY() > getBlockY()) {
+			getJumpControl().jump();
+		}
+		setActivity(PathFollower.State.MOVING);
+	}
+
 	private void startSearch(ServerLevel level, HunterTier tier, long goalKey) {
-		BlockPos from = blockPosition();
+		BlockPos from = standingOn();
 		LevelWorldView view = new LevelWorldView(level, getMainHandItem());
 		PathProfile profile = withPermissions(PathProfile.fromTier(tier));
 		searchView = view;
@@ -1199,15 +1325,47 @@ public class HunterEntity extends PathfinderMob implements Enemy {
 		ticksSincePlan = 0;
 	}
 
+	/**
+	 * Where to plan from.
+	 *
+	 * <p>Not simply where the hunter is. Half of every jump is spent a block or
+	 * two above the floor, and a route worked out from up there starts with a
+	 * step the hunter cannot reach once it lands. It then jumps at that step,
+	 * which puts it back in the air, which is where the next plan gets made,
+	 * and the hunter bounces on the spot underneath a first step it can never
+	 * arrive at. Planning from the floor it is going to land on instead costs
+	 * a handful of block lookups and makes the route start where the feet do.
+	 */
+	private BlockPos standingOn() {
+		BlockPos here = blockPosition();
+		if (onGround()) {
+			return here;
+		}
+		BlockPos.MutableBlockPos cursor = here.mutable();
+		for (int drop = 0; drop < 4; drop++) {
+			BlockPos below = cursor.below();
+			if (level().getBlockState(below).isCollisionShapeFullBlock(level(), below)) {
+				return cursor.immutable();
+			}
+			cursor.move(0, -1, 0);
+		}
+		return here;
+	}
+
 	/** Config can veto terrain edits regardless of what the tier allows. */
 	private PathProfile withPermissions(PathProfile profile) {
 		boolean allowed = canModifyTerrain();
 		// Pricing a bridge it has nothing to build with produces a route it can
 		// only ever stand at the near end of, replanned identically forever.
 		boolean canPay = !survivalMode || hasBuildingBlock();
+		// See the watchdog. After a rescue it does without one tool at a time,
+		// alternating, so the next route cannot be the one that just failed.
+		boolean improvising = improviseFor > 0;
+		boolean digging = !improvising || improviseMode % 2 == 0;
+		boolean building = !improvising || improviseMode % 2 == 1;
 		return new PathProfile(
-				profile.canMine() && allowed,
-				profile.canBridge() && allowed && canPay,
+				profile.canMine() && allowed && digging,
+				profile.canBridge() && allowed && canPay && building,
 				profile.canOpenDoors(),
 				profile.canParkour(),
 				profile.sprint(),

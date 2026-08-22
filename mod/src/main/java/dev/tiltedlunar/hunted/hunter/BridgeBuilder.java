@@ -66,7 +66,13 @@ public final class BridgeBuilder {
 			return false;
 		}
 
+		if (index < path.size() && path.get(index).kind() == MoveKind.PILLAR) {
+			return pillar(hunter, level, path.get(index));
+		}
+
 		boolean blockImmediate = false;
+		PathStep now = path.get(index);
+		BlockPos feet = new BlockPos(now.x(), now.y(), now.z());
 
 		for (int ahead = 0; ahead < LOOKAHEAD; ahead++) {
 			int at = index + ahead;
@@ -75,18 +81,37 @@ public final class BridgeBuilder {
 			}
 
 			PathStep step = path.get(at);
+
+			// A tower further down the path is not this tick's problem. Its
+			// support goes where the hunter will be standing later, not where
+			// it is standing now, so there is nothing to build ahead of time
+			// and the height test can never pass from over here. Looking ahead
+			// at one anyway is what left the hunter jumping on the spot at the
+			// foot of a pillar forever: the lookahead asked for a jump and held
+			// position every tick, so it could never walk into the column that
+			// would have let it build.
+			if (step.kind() == MoveKind.PILLAR) {
+				break;
+			}
+
 			BlockPos foot = new BlockPos(step.x(), step.y(), step.z());
 			BlockPos support = foot.below();
 
-			if (!needsSupport(level, step, support)) {
-				continue;
+			// Never fill a space something has to stand in. A route may well
+			// walk through a block early on and want to stand on that same
+			// block later, and the planner prices both without noticing the
+			// contradiction. Building the later one now means the follower
+			// mines it for headroom on the way past, the lookahead puts it
+			// straight back, and the two of them trade the same block a
+			// hundred times without the hunter moving at all.
+			if (support.equals(feet) || support.equals(feet.above())
+					|| support.equals(hunter.blockPosition())
+					|| support.equals(hunter.blockPosition().above())) {
+				break;
 			}
 
-			// A pillar puts the block where the hunter is standing, so it has
-			// to be in the air before there is room for it.
-			if (step.kind() == MoveKind.PILLAR && hunter.getY() < support.getY() + 0.9D) {
-				hunter.getJumpControl().jump();
-				return true;
+			if (!needsSupport(level, step, support)) {
+				continue;
 			}
 
 			if (place(hunter, level, support)) {
@@ -102,6 +127,39 @@ public final class BridgeBuilder {
 		}
 
 		return blockImmediate;
+	}
+
+	/**
+	 * Towers up one block.
+	 *
+	 * <p>The block goes where the hunter's feet currently are, so this is the
+	 * one placement it cannot make from a distance and cannot make while
+	 * standing on the ground. It has to be in its own column, and it has to
+	 * be a full block clear of the space, or the block spawns inside its
+	 * hitbox and shoves it off its own tower.
+	 *
+	 * @return true while the hunter is busy towering and must not be steered
+	 */
+	private boolean pillar(HunterEntity hunter, Level level, PathStep step) {
+		BlockPos support = new BlockPos(step.x(), step.y() - 1, step.z());
+
+		if (!level.getBlockState(support).canBeReplaced()) {
+			// Already built. Climbing it is the follower's job, not this one's.
+			return false;
+		}
+
+		// Only the hunter standing in the column can build the column.
+		if (hunter.getBlockX() != support.getX() || hunter.getBlockZ() != support.getZ()) {
+			return false;
+		}
+
+		if (hunter.getY() < support.getY() + 1.0D) {
+			hunter.getJumpControl().jump();
+			return true;
+		}
+
+		place(hunter, level, support);
+		return true;
 	}
 
 	/**

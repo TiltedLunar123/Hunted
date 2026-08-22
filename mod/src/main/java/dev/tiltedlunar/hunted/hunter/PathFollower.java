@@ -40,6 +40,14 @@ public final class PathFollower {
 	/** How close counts as standing on a step, horizontally. */
 	private static final double ARRIVE_RADIUS = 0.7D;
 
+	/**
+	 * How far the hunter has to get from where it was to count as having gone
+	 * anywhere. Wider than a jump is tall, so bobbing on the spot does not read
+	 * as travel, and narrower than two blocks, so a tower climbing one block at
+	 * a time still clears it.
+	 */
+	private static final double PROGRESS_RADIUS = 1.5D;
+
 	/** Furthest a hunter will reach to break a block. */
 	private static final double REACH = 4.5D;
 
@@ -67,7 +75,7 @@ public final class PathFollower {
 	private float miningProgress;
 	private float miningRequired;
 
-	private Vec3 lastPosition;
+	private Vec3 anchor;
 	private int stuckTicks;
 
 	/** Assigns a fresh path and forgets everything about the previous one. */
@@ -76,7 +84,7 @@ public final class PathFollower {
 		this.path = steps == null ? List.of() : steps;
 		this.index = 0;
 		this.stuckTicks = 0;
-		this.lastPosition = null;
+		this.anchor = null;
 	}
 
 	public List<PathStep> path() {
@@ -93,7 +101,7 @@ public final class PathFollower {
 		PathStep step = path.get(index);
 		BlockPos target = new BlockPos(step.x(), step.y(), step.z());
 
-		if (hasReached(hunter, target, stepGoesDown(hunter, step, index))) {
+		if (hasReached(hunter, step, target, stepGoesDown(hunter, step, index))) {
 			index++;
 			clearMining(level, hunter.getId());
 			stuckTicks = 0;
@@ -124,12 +132,33 @@ public final class PathFollower {
 		// is directly overhead, so steering at it produces a stale yaw and full
 		// forward input, which walks the hunter off the one block tower it just
 		// built. Hold still and climb.
+		//
+		// A pillar counts even once the hunter has risen level with the step it
+		// is climbing to, because the moment after the block goes down it is
+		// stood on top of a column exactly one block wide, and that is the worst
+		// possible moment to be given full forward input.
 		if (step.x() == hunter.getBlockX() && step.z() == hunter.getBlockZ()
-				&& step.y() > hunter.getBlockY()) {
+				&& (step.y() > hunter.getBlockY() || step.kind() == MoveKind.PILLAR)) {
 			hunter.zza = 0.0f;
 			hunter.xxa = 0.0f;
 			hunter.getLookControl().setLookAt(Vec3.atCenterOf(target));
 			hunter.getJumpControl().jump();
+			return trackProgress(hunter);
+		}
+
+		// Walking into the column of a tower it has not finished. The step is
+		// only ever a block or so away here, and the arrival window is wide
+		// enough to tick off the step before it, so the hunter routinely ends
+		// up balanced on the very edge of what it has built with a fraction of
+		// a block still to cover. Cover it on foot: the tower's own jump
+		// belongs to the bridge builder, timed to the moment there is room for
+		// the block, and jumping on the approach instead throws the hunter off
+		// the one block wide top of its own tower every time.
+		if (step.kind() == MoveKind.PILLAR) {
+			steer(hunter, Vec3.atBottomCenterOf(target), false);
+			if (hunter.horizontalCollision && hunter.onGround()) {
+				hunter.getJumpControl().jump();
+			}
 			return trackProgress(hunter);
 		}
 
@@ -291,13 +320,25 @@ public final class PathFollower {
 	 * ground untouched, and the hunter would then aim at a cell several blocks
 	 * under its feet.
 	 */
-	private boolean hasReached(HunterEntity hunter, BlockPos target, boolean goingDown) {
+	private boolean hasReached(HunterEntity hunter, PathStep step, BlockPos target, boolean goingDown) {
 		double dx = hunter.getX() - (target.getX() + 0.5D);
 		double dz = hunter.getZ() - (target.getZ() + 0.5D);
 		double dy = hunter.getY() - target.getY();
 		if (dx * dx + dz * dz > ARRIVE_RADIUS * ARRIVE_RADIUS) {
 			return false;
 		}
+
+		// A tower step is only reached by standing on the block that was built
+		// for it. The general window accepts anything above one block down, and
+		// the first tick of the jump that is meant to make room for the block is
+		// already inside that window, so the step was ticked off before the
+		// block was ever placed. Every step of the tower went the same way, and
+		// the hunter arrived at the top of a path it had not built, on the
+		// ground, at the bottom.
+		if (step.kind() == MoveKind.PILLAR) {
+			return hunter.onGround() && dy > -0.2D && dy < 0.5D;
+		}
+
 		double above = goingDown ? 0.4D : 1.2D;
 		return dy > -1.0D && dy < above;
 	}
@@ -315,15 +356,24 @@ public final class PathFollower {
 		return step.y() < from || step.kind().descends();
 	}
 
-	/** Watches for a hunter that is walking on the spot. */
+	/**
+	 * Watches for a hunter that is walking on the spot.
+	 *
+	 * <p>Measured against an anchor rather than against the previous tick. A
+	 * hunter jumping in place moves a good third of a block every tick and
+	 * never leaves the block it started on, and comparing consecutive ticks
+	 * called that progress, so the one failure mode most likely to need
+	 * catching was the one it could not see.
+	 */
 	private State trackProgress(HunterEntity hunter) {
 		Vec3 now = hunter.position();
-		if (lastPosition != null && now.distanceToSqr(lastPosition) < 0.0016D) {
-			stuckTicks++;
-		} else {
+		if (anchor == null
+				|| now.distanceToSqr(anchor) > PROGRESS_RADIUS * PROGRESS_RADIUS) {
+			anchor = now;
 			stuckTicks = 0;
+		} else {
+			stuckTicks++;
 		}
-		lastPosition = now;
 		return stuckTicks >= STUCK_LIMIT ? State.STUCK : State.MOVING;
 	}
 }
