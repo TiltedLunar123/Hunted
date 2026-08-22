@@ -106,6 +106,16 @@ public final class HuntedCommand {
 									+ (value ? "enabled." : "disabled."));
 						})));
 
+		root.then(Commands.literal("respawn")
+				.then(Commands.argument("enabled", BoolArgumentType.bool())
+						.executes(context -> {
+							boolean value = BoolArgumentType.getBool(context, "enabled");
+							HuntedConfig.get().setRespawn(value);
+							return reply(context, value
+									? "Killing a hunter now buys you the walk back from spawn, nothing more."
+									: "Hunters now stay dead.");
+						})));
+
 		root.then(Commands.literal("taunts")
 				.then(Commands.argument("enabled", BoolArgumentType.bool())
 						.executes(context -> {
@@ -232,6 +242,10 @@ public final class HuntedCommand {
 	}
 
 	private static int clear(CommandContext<CommandSourceStack> context) {
+		// Booked replacements count as hunters for this purpose. Clearing the
+		// field and then having one stroll back out of spawn ten seconds later
+		// is not what anybody meant by clear.
+		dev.tiltedlunar.hunted.hunter.Respawns.cancelAll();
 		int removed = 0;
 		for (ServerLevel level : context.getSource().getServer().getAllLevels()) {
 			for (HunterEntity hunter : hunters(level)) {
@@ -286,7 +300,11 @@ public final class HuntedCommand {
 		}
 
 		if (found == 0) {
-			source.sendSuccess(() -> Component.literal("No hunters are active."), false);
+			int coming = dev.tiltedlunar.hunted.hunter.Respawns.waiting();
+			source.sendSuccess(() -> Component.literal(coming > 0
+					? "No hunters are active. " + coming
+							+ (coming == 1 ? " is" : " are") + " on the way back from spawn."
+					: "No hunters are active."), false);
 		}
 		return found;
 	}

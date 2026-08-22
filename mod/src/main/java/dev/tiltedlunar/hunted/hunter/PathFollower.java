@@ -5,6 +5,7 @@ import java.util.List;
 import dev.tiltedlunar.hunted.path.BlockClass;
 import dev.tiltedlunar.hunted.path.LevelWorldView;
 import dev.tiltedlunar.hunted.path.MoveKind;
+import dev.tiltedlunar.hunted.path.PathProfile;
 import dev.tiltedlunar.hunted.path.PathStep;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
@@ -47,6 +48,14 @@ public final class PathFollower {
 	 * a time still clears it.
 	 */
 	private static final double PROGRESS_RADIUS = 1.5D;
+
+	/**
+	 * How many steps of clear level path make a running jump worth taking.
+	 *
+	 * <p>Two, because the hunter has to land somewhere it still wanted to be.
+	 * Any fewer and it jumps into the turn at the end of a corridor.
+	 */
+	private static final int RUN_UP = 2;
 
 	/** Furthest a hunter will reach to break a block. */
 	private static final double REACH = 4.5D;
@@ -170,6 +179,8 @@ public final class PathFollower {
 		steer(hunter, Vec3.atBottomCenterOf(target), hunter.tier().canSprint());
 
 		if (step.kind().needsJump() || needsHop(hunter, target)) {
+			hunter.getJumpControl().jump();
+		} else if (worthARunningJump(hunter, level, step)) {
 			hunter.getJumpControl().jump();
 		}
 
@@ -295,12 +306,88 @@ public final class PathFollower {
 		}
 
 		hunter.getLookControl().setLookAt(aim.x, aim.y + hunter.getEyeHeight(), aim.z);
-		hunter.setSpeed((float) hunter.getAttributeValue(Attributes.MOVEMENT_SPEED));
+
+		// Water is slow, and it has to be slow for the hunter too. Left alone a
+		// mob swims at its full walking pace, which put this one ahead of
+		// anyone it was chasing the moment they both hit a river: they were
+		// swimming and it was strolling. Measured across a four deep channel it
+		// crossed at about three blocks a second against a player's two.
+		//
+		// The divisor is the planner's own figure for what a wet step costs, so
+		// the route it picked and the speed it actually manages agree with each
+		// other, which they did not before. Measured across a four deep channel
+		// that lands at about one and a half blocks a second against a player's
+		// two, so water is now slightly in the runner's favour. That is the
+		// right side to err on: anything looser measured faster than a person
+		// can swim, which is what made a river a free crossing for it and a
+		// real obstacle for everyone else.
+		double pace = hunter.getAttributeValue(Attributes.MOVEMENT_SPEED);
+		if (hunter.isInWater()) {
+			pace /= PathProfile.SWIM_MULTIPLIER;
+		}
+		hunter.setSpeed((float) pace);
 		// Sneaking and sprinting at once is not a thing a player can do, and
 		// asking for both would give away the quiet approach it just chose.
 		hunter.setSprinting(sprint && !hunter.isShiftKeyDown());
 		hunter.xxa = 0.0f;
 		hunter.zza = 1.0f;
+	}
+
+	/**
+	 * Whether to put a jump into this stride.
+	 *
+	 * <p>Players almost never simply run. They run and jump, over and over,
+	 * because a jump taken while sprinting is given a forward shove on the way
+	 * up and keeps most of it through the air, where there is far less friction
+	 * than on the ground. A chain of them covers noticeably more distance than
+	 * holding forward does, and it is the single most recognisable thing about
+	 * how a person moves across open country.
+	 *
+	 * <p>Nothing has to be done to get the shove: vanilla adds it itself
+	 * whenever a jump leaves the ground with the sprint flag set, and it rate
+	 * limits the chain on its own. All this has to do is know when it is a good
+	 * idea, and the honest answer is only on open level ground it can see the
+	 * far side of. In a two block tunnel the hunter would crack its head on the
+	 * ceiling and arrive slower than if it had walked, and on a ledge or the
+	 * lip of a drop it would sail straight off the route it just planned.
+	 */
+	private boolean worthARunningJump(HunterEntity hunter, Level level, PathStep step) {
+		if (!hunter.isSprinting() || !hunter.onGround() || hunter.isInWater()) {
+			return false;
+		}
+		if (!flat(step) || step.y() != hunter.getBlockY()) {
+			return false;
+		}
+		// Nearly there is no time to be airborne.
+		if (index + RUN_UP >= path.size()) {
+			return false;
+		}
+		// Room over its own head to rise into.
+		BlockPos above = new BlockPos(hunter.getBlockX(), hunter.getBlockY() + 2, hunter.getBlockZ());
+		if (!level.getBlockState(above).isAir()) {
+			return false;
+		}
+		// And real floor, and real headroom, everywhere it is about to land.
+		for (int ahead = 0; ahead <= RUN_UP; ahead++) {
+			PathStep next = path.get(index + ahead);
+			if (!flat(next) || next.y() != step.y()) {
+				return false;
+			}
+			BlockPos floor = new BlockPos(next.x(), next.y() - 1, next.z());
+			if (!level.getBlockState(floor).isCollisionShapeFullBlock(level, floor)) {
+				return false;
+			}
+			BlockPos clear = new BlockPos(next.x(), next.y() + 2, next.z());
+			if (!level.getBlockState(clear).isAir()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** A step that is simply along the ground, with no height or trick to it. */
+	private static boolean flat(PathStep step) {
+		return step.kind() == MoveKind.WALK || step.kind() == MoveKind.DIAGONAL;
 	}
 
 	/** True when the hunter is pressed against something it can step over. */

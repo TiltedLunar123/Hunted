@@ -81,12 +81,15 @@ public final class Tactics {
 		}
 
 		// Nothing to be afraid of. No amount of shopping improves on attacking
-		// someone who cannot hit back.
-		if (quarry.defenceless()) {
+		// someone who cannot hit back, unless the hunter cannot hit back
+		// either: fists against fists is a long fight that the runner can walk
+		// out of, and only one of the two can leave and come back with a sword.
+		if (quarry.defenceless() && !(canGearUp && self.emptyHanded())) {
 			return new Plan(Tactic.RUSH, "target is unarmed and unarmoured");
 		}
 
-		// A window, close enough to reach before it shuts.
+		// A window, close enough to reach before it shuts. Free hits are worth
+		// taking bare handed, so this stays ahead of going shopping.
 		if (quarry.opening().actionable() && quarry.distance() <= RUSH_RANGE) {
 			return new Plan(Tactic.RUSH, "caught them " + describe(quarry.opening()));
 		}
@@ -106,6 +109,15 @@ public final class Tactics {
 		// A shield beats a sword. An axe beats a shield.
 		if (quarry.shield() && !self.hasAxe() && canGearUp && advantage < SHIELD_TOLERANCE) {
 			return new Plan(Tactic.COUNTER_SHIELD, "they have a shield, going to make an axe");
+		}
+
+		// Nothing in its hands at all, and somewhere to go and fix that. Worth
+		// saying on its own because it is the one case the arithmetic below
+		// cannot see: an empty hunter against an empty player scores dead
+		// level, no gear deficit ever registers, and it would charge bare
+		// knuckled for the rest of the game.
+		if (canGearUp && self.emptyHanded()) {
+			return new Plan(Tactic.GEAR_UP, "nothing in hand, arming first");
 		}
 
 		// Meaningfully outgunned, and able to do something about it.

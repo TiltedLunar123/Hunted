@@ -42,11 +42,27 @@ class TacticsTest {
 		return Tactics.choose(quarry, self, canGearUp, true).tactic();
 	}
 
+	/** A hunter holding a stone sword and wearing nothing. */
+	private static Readiness armed() {
+		return new Readiness(0, WeaponClass.STONE, false, 1.0D, false,
+				Double.POSITIVE_INFINITY);
+	}
+
 	@Test
-	@DisplayName("attacks a defenceless target no matter how poorly equipped it is")
+	@DisplayName("attacks a defenceless target once it has something to attack with")
 	void rushesTheDefenceless() {
-		assertEquals(Tactic.RUSH, decide(helpless(15.0D), EMPTY_HANDED, true),
-				"an empty handed hunter should still attack an empty handed player");
+		// With a weapon in hand there is nothing to gain by shopping first.
+		assertEquals(Tactic.RUSH, decide(helpless(15.0D), armed(), true),
+				"a target that cannot hit back is worth attacking immediately");
+
+		// With nothing at all it fetches a sword rather than trading punches,
+		// because fists against fists is a fight the runner can walk out of.
+		assertEquals(Tactic.GEAR_UP, decide(helpless(15.0D), EMPTY_HANDED, true),
+				"an empty handed hunter should arm itself first");
+
+		// Unless there is nowhere to shop, in which case fists it is.
+		assertEquals(Tactic.RUSH, decide(helpless(15.0D), EMPTY_HANDED, false),
+				"with no economy available it has to charge anyway");
 	}
 
 	@Test

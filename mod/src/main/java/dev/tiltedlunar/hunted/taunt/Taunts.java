@@ -161,6 +161,22 @@ public enum Taunts {
 			"I keep the rest of me."
 	),
 
+	/** Killed, and back on its feet somewhere else. */
+	RESPAWN(
+			"I am put back.",
+			"That was not the end of it.",
+			"You bought minutes, not the thing.",
+			"I start again from the beginning.",
+			"Killing me is a delay.",
+			"I come back with nothing and that is fine.",
+			"You will have to do that again.",
+			"I have the whole walk to think about it.",
+			"The distance is the only thing you won.",
+			"I lost the gear. I did not lose you.",
+			"You put me down and I stood back up somewhere else.",
+			"Again, then."
+	),
+
 	/** You took a portal. It followed. */
 	DIMENSION(
 			"I follow through.",

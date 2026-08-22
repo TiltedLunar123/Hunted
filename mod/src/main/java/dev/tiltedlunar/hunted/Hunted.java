@@ -4,6 +4,8 @@ import dev.tiltedlunar.hunted.command.HuntedCommand;
 import dev.tiltedlunar.hunted.registry.HuntedEntities;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import dev.tiltedlunar.hunted.hunter.Respawns;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +29,10 @@ public final class Hunted implements ModInitializer {
 
 		CommandRegistrationCallback.EVENT.register(
 				(dispatcher, registry, environment) -> HuntedCommand.register(dispatcher));
+
+		// A killed hunter books its replacement and then stops existing, so the
+		// countdown has to be ticked by something that outlives it.
+		ServerTickEvents.END_SERVER_TICK.register(Respawns::tick);
 
 		LOG.info("Hunted ready. Default tier: {}.", HuntedConfig.get().defaultTier().displayName());
 	}
